@@ -55,3 +55,20 @@ chmod +x build_mac.sh
 ./build_mac.sh
 ```
 
+## GitHub Release (Windows + macOS)
+
+- Workflow file: `.github/workflows/release.yml`
+- Trigger options:
+  - push tag `v*` (for example `v2.4.13`)
+  - manual `workflow_dispatch` from GitHub Actions tab
+
+Tag release example:
+
+```bash
+git tag v2.4.13
+git push origin v2.4.13
+```
+
+Produced assets:
+- `EasyBridge-win64.zip` (Windows exe)
+- `EasyBridge-macos-universal.zip` (macOS .app bundle)

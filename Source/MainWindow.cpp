@@ -2,6 +2,10 @@
 #include "core/BridgeVersion.h"
 #include <cmath>
 
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
 namespace bridge
 {
 namespace
@@ -10,6 +14,7 @@ const auto kBg = juce::Colour::fromRGB (0x17, 0x17, 0x17);      // UI_BG
 const auto kRow = juce::Colour::fromRGB (0x3a, 0x3a, 0x3a);     // UI_BG_ROW
 const auto kSection = juce::Colour::fromRGB (0x65, 0x65, 0x65); // UI_BG_SEC
 const auto kInput = juce::Colour::fromRGB (0x24, 0x24, 0x24);   // UI_BG_INPUT
+const auto kHeader = juce::Colour::fromRGB (0x2f, 0x2f, 0x32);
 const auto kTeal = juce::Colour::fromRGB (0x3d, 0x80, 0x70);    // UI_TEAL
 const auto kTealOff = juce::Colour::fromRGB (0x48, 0x48, 0x48); // UI_TEAL_OFF
 
@@ -97,6 +102,110 @@ float dbToLinearGain (double db)
     return (float) std::pow (10.0, db / 20.0);
 }
 
+juce::File findBridgeBaseDirFromExe()
+{
+    auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+    juce::Array<juce::File> roots;
+    roots.add (exeDir);
+    roots.add (juce::File::getCurrentWorkingDirectory());
+
+    auto p = exeDir;
+    for (int i = 0; i < 8 && p.exists(); ++i)
+    {
+        roots.addIfNotAlreadyThere (p);
+        p = p.getParentDirectory();
+    }
+
+    for (auto r : roots)
+    {
+        auto candidate = r.getChildFile ("MTC_Bridge");
+        if (candidate.exists())
+            return candidate;
+    }
+
+    return {};
+}
+
+juce::Image loadBridgeAppIcon()
+{
+    auto base = findBridgeBaseDirFromExe();
+    if (! base.exists())
+        return {};
+
+    auto iconFile = base.getChildFile ("Icons/App_Icon.png");
+    if (! iconFile.existsAsFile())
+        return {};
+
+    auto in = std::unique_ptr<juce::FileInputStream> (iconFile.createInputStream());
+    if (in == nullptr)
+        return {};
+
+    return juce::ImageFileFormat::loadFrom (*in);
+}
+
+#if JUCE_WINDOWS
+void applyNativeDarkTitleBar (juce::DocumentWindow& window)
+{
+    auto* peer = window.getPeer();
+    if (peer == nullptr)
+        return;
+
+    auto* hwnd = static_cast<HWND> (peer->getNativeHandle());
+    if (hwnd == nullptr)
+        return;
+
+    auto* dwm = ::LoadLibraryW (L"dwmapi.dll");
+    if (dwm == nullptr)
+        return;
+
+    using DwmSetWindowAttributeFn = HRESULT (WINAPI*) (HWND, DWORD, LPCVOID, DWORD);
+    auto setAttr = reinterpret_cast<DwmSetWindowAttributeFn> (::GetProcAddress (dwm, "DwmSetWindowAttribute"));
+    if (setAttr != nullptr)
+    {
+        const BOOL enabled = TRUE;
+        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
+        setAttr (hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &enabled, sizeof (enabled));
+        setAttr (hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, &enabled, sizeof (enabled));
+    }
+
+    ::FreeLibrary (dwm);
+}
+#endif
+
+class BridgeTrayIcon final : public juce::SystemTrayIconComponent
+{
+public:
+    explicit BridgeTrayIcon (MainWindow& owner) : owner_ (owner) {}
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown())
+        {
+            juce::PopupMenu menu;
+            menu.addItem (1, "Show");
+            menu.addSeparator();
+            menu.addItem (2, "Quit");
+            menu.showMenuAsync (juce::PopupMenu::Options(),
+                                [safeOwner = juce::Component::SafePointer<MainWindow> (&owner_)] (int result)
+                                {
+                                    if (safeOwner == nullptr)
+                                        return;
+                                    if (result == 1)
+                                        safeOwner->showFromTray();
+                                    else if (result == 2)
+                                        safeOwner->quitFromTray();
+                                });
+            return;
+        }
+
+        owner_.showFromTray();
+    }
+
+private:
+    MainWindow& owner_;
+};
+
 }
 
 MainContentComponent::MainContentComponent()
@@ -104,11 +213,30 @@ MainContentComponent::MainContentComponent()
     loadFontsAndIcon();
     applyLookAndFeel();
 
-    titleLabel_.setText ("EASY BRIDGE  v" + juce::String (version::kAppVersion), juce::dontSendNotification);
-    titleLabel_.setJustificationType (juce::Justification::centredLeft);
-    if (titleEasyFont_.getHeight() > 0.0f)
-        titleLabel_.setFont (titleEasyFont_.withHeight (28.0f));
-    addAndMakeVisible (titleLabel_);
+    titleEasyLabel_.setText ("EASY", juce::dontSendNotification);
+    titleEasyLabel_.setJustificationType (juce::Justification::centredLeft);
+    titleEasyLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
+    titleEasyLabel_.setFont ((titleEasyFont_.getHeight() > 0.0f ? titleEasyFont_ : juce::Font()).withHeight (34.0f));
+    addAndMakeVisible (titleEasyLabel_);
+
+    titleBridgeLabel_.setText ("BRIDGE", juce::dontSendNotification);
+    titleBridgeLabel_.setJustificationType (juce::Justification::centredLeft);
+    titleBridgeLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xa1, 0xa5, 0xac));
+    titleBridgeLabel_.setFont ((titleBridgeFont_.getHeight() > 0.0f ? titleBridgeFont_ : juce::Font()).withHeight (34.0f));
+    addAndMakeVisible (titleBridgeLabel_);
+
+    titleVersionLabel_.setText ("v" + juce::String (version::kAppVersion), juce::dontSendNotification);
+    titleVersionLabel_.setJustificationType (juce::Justification::centredRight);
+    titleVersionLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0x8b, 0x91, 0x9a));
+    titleVersionLabel_.setFont (juce::FontOptions (12.0f));
+    addAndMakeVisible (titleVersionLabel_);
+
+    helpButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x50, 0x52, 0x56));
+    helpButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x50, 0x52, 0x56));
+    helpButton_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xdf, 0xe3, 0xea));
+    helpButton_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xdf, 0xe3, 0xea));
+    helpButton_.onClick = [this] { openHelpPage(); };
+    addAndMakeVisible (helpButton_);
 
     tcLabel_.setText ("00:00:00:00", juce::dontSendNotification);
     tcLabel_.setJustificationType (juce::Justification::centred);
@@ -116,16 +244,33 @@ MainContentComponent::MainContentComponent()
     tcLabel_.setColour (juce::Label::outlineColourId, juce::Colour::fromRGB (48, 48, 48));
     tcLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (220, 216, 203));
     if (monoFont_.getHeight() > 0.0f)
-        tcLabel_.setFont (monoFont_.withHeight (58.0f));
+        tcLabel_.setFont (monoFont_.withHeight (62.0f));
     addAndMakeVisible (tcLabel_);
 
     tcFpsLabel_.setText ("TC FPS: --", juce::dontSendNotification);
     addAndMakeVisible (tcFpsLabel_);
 
-    statusLabel_.setText ("STOPPED", juce::dontSendNotification);
-    statusLabel_.setColour (juce::Label::backgroundColourId, kRow);
-    statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (255, 120, 110));
-    addAndMakeVisible (statusLabel_);
+    statusButton_.setButtonText ("STOPPED");
+    statusButton_.setColour (juce::TextButton::buttonColourId, kRow);
+    statusButton_.setColour (juce::TextButton::buttonOnColourId, kRow);
+    statusButton_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (255, 120, 110));
+    statusButton_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (255, 120, 110));
+    statusButton_.onClick = [this] { openStatusMonitorWindow(); };
+    addAndMakeVisible (statusButton_);
+
+    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+    settingsButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    settingsButton_.onClick = [this] { openSettingsMenu(); };
+    addAndMakeVisible (settingsButton_);
+
+    quitButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
+    quitButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
+    quitButton_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    quitButton_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    quitButton_.onClick = [] { juce::JUCEApplication::getInstance()->systemRequestedQuit(); };
+    addAndMakeVisible (quitButton_);
 
     sourceCombo_.addItem ("LTC", 1);
     sourceCombo_.addItem ("MTC", 2);
@@ -307,7 +452,10 @@ MainContentComponent::MainContentComponent()
     addAndMakeVisible (artnetDestIpEditor_);
 
     refreshDeviceLists();
-    restartSelectedSource();
+    loadRuntimePrefs();
+    maybeAutoLoadConfig();
+    if (! (autoLoadOnStartup_ && lastConfigFile_.existsAsFile()))
+        restartSelectedSource();
     // Parent window may not be attached yet inside the component ctor.
     juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainContentComponent> (this)]
     {
@@ -330,7 +478,7 @@ int MainContentComponent::calcPreferredHeight() const
 int MainContentComponent::calcHeightForState (bool sourceExpanded, int sourceId, bool outLtcExpanded, bool outMtcExpanded, bool outArtExpanded) const
 {
     int h = 16; // outer margins
-    h += 44 + 4;  // title
+    h += 40 + 4;  // title
     h += 108;     // tc
     h += 24 + 4;  // tc fps
 
@@ -355,7 +503,8 @@ int MainContentComponent::calcHeightForState (bool sourceExpanded, int sourceId,
     addRows (1); // out ArtNet header
     if (outArtExpanded) addRows (3);
 
-    h += 34; // status
+    h += 24 + 4; // status
+    h += 36 + 4; // settings/quit
     h += 8;  // bottom pad
     return juce::jlimit (420, 1600, h);
 }
@@ -446,6 +595,7 @@ void MainContentComponent::applyLookAndFeel()
     lookAndFeel_->setColour (juce::PopupMenu::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
     lookAndFeel_->setColour (juce::PopupMenu::highlightedBackgroundColourId, kTeal);
     lookAndFeel_->setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    lookAndFeel_->setColour (juce::PopupMenu::headerTextColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
 
     // Scrollbar inside popup menu.
     lookAndFeel_->setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
@@ -462,6 +612,14 @@ void MainContentComponent::paint (juce::Graphics& g)
 {
     g.fillAll (kBg);
 
+    if (! headerRect_.isEmpty())
+    {
+        g.setColour (kHeader);
+        g.fillRoundedRectangle (headerRect_.toFloat(), 5.0f);
+        g.setColour (juce::Colour::fromRGB (0x3c, 0x3e, 0x42));
+        g.drawRoundedRectangle (headerRect_.toFloat(), 5.0f, 1.0f);
+    }
+
     g.setColour (kSection);
     for (auto r : sectionRowRects_)
         g.fillRoundedRectangle (r.toFloat(), 5.0f);
@@ -475,6 +633,17 @@ void MainContentComponent::paint (juce::Graphics& g)
         g.drawRoundedRectangle (r.toFloat(), 5.0f, 1.0f);
     for (auto r : paramRowRects_)
         g.drawRoundedRectangle (r.toFloat(), 5.0f, 1.0f);
+
+    if (! statusRect_.isEmpty())
+    {
+        g.setColour (juce::Colour::fromRGB (0x3f, 0x3f, 0x3f));
+        g.drawRoundedRectangle (statusRect_.toFloat(), 4.0f, 1.0f);
+    }
+    if (! buttonRowRect_.isEmpty())
+    {
+        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
+        g.drawRoundedRectangle (buttonRowRect_.toFloat(), 4.0f, 1.0f);
+    }
 }
 
 void MainContentComponent::resized()
@@ -483,7 +652,20 @@ void MainContentComponent::resized()
     sectionRowRects_.clear();
 
     auto a = getLocalBounds().reduced (8);
-    titleLabel_.setBounds (a.removeFromTop (44));
+    headerRect_ = a.removeFromTop (40);
+    auto header = headerRect_.reduced (8, 0);
+    auto help = header.removeFromRight (28);
+    helpButton_.setBounds (help.withSizeKeepingCentre (24, 24));
+    auto versionZone = header.removeFromRight (64);
+    titleVersionLabel_.setBounds (versionZone);
+
+    auto titleArea = header;
+    const int easyW = juce::jmax (46, titleEasyLabel_.getFont().getStringWidth ("EASY") + 6);
+    const int bridgeW = juce::jmax (74, titleBridgeLabel_.getFont().getStringWidth ("BRIDGE") + 6);
+    const int startX = titleArea.getX() + 2;
+    const int titleYOffset = 3;
+    titleEasyLabel_.setBounds (startX, titleArea.getY() + titleYOffset, easyW, titleArea.getHeight() - titleYOffset);
+    titleBridgeLabel_.setBounds (startX + easyW, titleArea.getY() + titleYOffset, bridgeW, titleArea.getHeight() - titleYOffset);
     a.removeFromTop (4);
     tcLabel_.setBounds (a.removeFromTop (108));
     tcFpsLabel_.setBounds (a.removeFromTop (24));
@@ -658,7 +840,13 @@ void MainContentComponent::resized()
         fieldRow (artOffsetLbl_, artnetOffsetEditor_);
     }
 
-    statusLabel_.setBounds (a.removeFromBottom (34));
+    buttonRowRect_ = a.removeFromBottom (36);
+    auto buttons = buttonRowRect_.reduced (0, 0);
+    settingsButton_.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
+    quitButton_.setBounds (buttons.reduced (1, 0));
+    a.removeFromBottom (4);
+    statusRect_ = a.removeFromBottom (24);
+    statusButton_.setBounds (statusRect_.reduced (0, 0));
 
     auto hideAll = [this]
     {
@@ -743,7 +931,7 @@ void MainContentComponent::restartSelectedSource()
     }
 
     if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
+        setStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
 }
 
 void MainContentComponent::onOutputToggleChanged()
@@ -783,7 +971,7 @@ void MainContentComponent::onOutputSettingsChanged()
         bridgeEngine_.setArtnetOutputEnabled (false);
 
     if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
+        setStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
 }
 
 void MainContentComponent::onInputSettingsChanged()
@@ -813,7 +1001,8 @@ void MainContentComponent::timerCallback()
         latchedFps_ = st.inputFps;
         tcLabel_.setText (st.inputTc.toDisplayString (st.inputFps).replaceCharacter ('.', ':'), juce::dontSendNotification);
         tcFpsLabel_.setText ("TC FPS: " + frameRateToString (st.inputFps), juce::dontSendNotification);
-        statusLabel_.setText ("RUNNING | LTC " + st.ltcOutStatus + " | MTC " + st.mtcOutStatus + " | ArtNet " + st.artnetOutStatus, juce::dontSendNotification);
+        setStatusText ("RUNNING | LTC " + st.ltcOutStatus + " | MTC " + st.mtcOutStatus + " | ArtNet " + st.artnetOutStatus,
+                       juce::Colour::fromRGB (0x71, 0xd1, 0x7a));
     }
     else
     {
@@ -827,6 +1016,9 @@ void MainContentComponent::timerCallback()
             tcLabel_.setText ("00:00:00:00", juce::dontSendNotification);
             tcFpsLabel_.setText ("TC FPS: --", juce::dontSendNotification);
         }
+
+        if (statusButton_.getButtonText().startsWithIgnoreCase ("RUNNING"))
+            setStatusText ("STOPPED - no timecode", juce::Colour::fromRGB (255, 120, 110));
     }
 }
 
@@ -976,21 +1168,409 @@ void MainContentComponent::syncOscIpWithAdapter()
     oscIpEditor_.setReadOnly (lockIp);
 }
 
+juce::File MainContentComponent::findBridgeBaseDir() const
+{
+    auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+    juce::Array<juce::File> roots;
+    roots.add (exeDir);
+    roots.add (juce::File::getCurrentWorkingDirectory());
+
+    auto p = exeDir;
+    for (int i = 0; i < 8 && p.exists(); ++i)
+    {
+        roots.addIfNotAlreadyThere (p);
+        p = p.getParentDirectory();
+    }
+
+    for (auto r : roots)
+    {
+        auto candidate = r.getChildFile ("MTC_Bridge");
+        if (candidate.exists())
+            return candidate;
+    }
+
+    return {};
+}
+
+void MainContentComponent::setStatusText (const juce::String& text, juce::Colour colour)
+{
+    statusButton_.setButtonText (text);
+    statusButton_.setColour (juce::TextButton::textColourOffId, colour);
+    statusButton_.setColour (juce::TextButton::textColourOnId, colour);
+}
+
+void MainContentComponent::openStatusMonitorWindow()
+{
+    juce::String details;
+    details << "Source: " << sourceCombo_.getText() << "\n";
+    details << "Input TC: " << tcLabel_.getText() << " (" << tcFpsLabel_.getText().fromFirstOccurrenceOf (": ", false, false) << ")\n";
+    details << "LTC Out: " << (ltcOutSwitch_.getState() ? "ON" : "OFF") << " | device: " << ltcOutDeviceCombo_.getText() << "\n";
+    details << "MTC Out: " << (mtcOutSwitch_.getState() ? "ON" : "OFF") << " | port: " << mtcOutCombo_.getText() << "\n";
+    details << "ArtNet Out: " << (artnetOutSwitch_.getState() ? "ON" : "OFF") << " | iface: " << artnetOutCombo_.getText() << "\n";
+    details << "OSC Listen: " << oscIpEditor_.getText() << ":" << oscPortEditor_.getText() << "\n";
+    details << "Status: " << statusButton_.getButtonText();
+
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                            "Bridge Status Monitor",
+                                            details);
+}
+
+void MainContentComponent::saveConfigAs()
+{
+    saveChooser_ = std::make_unique<juce::FileChooser> (
+        "Save Easy Bridge config",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("easy_bridge.ebrp"),
+        "*.ebrp");
+
+    saveChooser_->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                               [safe = juce::Component::SafePointer<MainContentComponent> (this)] (const juce::FileChooser& chooser)
+                               {
+                                   if (safe == nullptr)
+                                       return;
+                                   auto file = chooser.getResult();
+                                   if (file == juce::File{})
+                                       return;
+                                   if (! file.hasFileExtension (".ebrp"))
+                                       file = file.withFileExtension (".ebrp");
+                                   safe->saveConfigToFile (file);
+                                   safe->saveChooser_.reset();
+                               });
+}
+
+void MainContentComponent::loadConfigFrom()
+{
+    loadChooser_ = std::make_unique<juce::FileChooser> (
+        "Load Easy Bridge config",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+        "*.ebrp");
+
+    loadChooser_->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                               [safe = juce::Component::SafePointer<MainContentComponent> (this)] (const juce::FileChooser& chooser)
+                               {
+                                   if (safe == nullptr)
+                                       return;
+                                   auto file = chooser.getResult();
+                                   if (file != juce::File{})
+                                       safe->loadConfigFromFile (file);
+                                   safe->loadChooser_.reset();
+                               });
+}
+
+void MainContentComponent::saveConfigToFile (const juce::File& cfgFile)
+{
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty ("source", sourceCombo_.getSelectedId());
+    obj->setProperty ("source_expanded", sourceExpanded_);
+    obj->setProperty ("out_ltc_expanded", outLtcExpanded_);
+    obj->setProperty ("out_mtc_expanded", outMtcExpanded_);
+    obj->setProperty ("out_artnet_expanded", outArtExpanded_);
+    obj->setProperty ("close_to_tray", closeToTray_);
+    obj->setProperty ("ltc_in_driver", ltcInDriverCombo_.getText());
+    obj->setProperty ("ltc_out_driver", ltcOutDriverCombo_.getText());
+    obj->setProperty ("ltc_in_device", ltcInDeviceCombo_.getText());
+    obj->setProperty ("ltc_out_device", ltcOutDeviceCombo_.getText());
+    obj->setProperty ("mtc_in", mtcInCombo_.getText());
+    obj->setProperty ("mtc_out", mtcOutCombo_.getText());
+    obj->setProperty ("artnet_in", artnetInCombo_.getText());
+    obj->setProperty ("artnet_out", artnetOutCombo_.getText());
+    obj->setProperty ("osc_adapter", oscAdapterCombo_.getText());
+    obj->setProperty ("osc_ip", oscIpEditor_.getText());
+    obj->setProperty ("osc_port", oscPortEditor_.getText());
+    obj->setProperty ("osc_fps", oscFpsCombo_.getText());
+    obj->setProperty ("osc_str", oscAddrStrEditor_.getText());
+    obj->setProperty ("osc_float", oscAddrFloatEditor_.getText());
+    obj->setProperty ("artnet_dest", artnetDestIpEditor_.getText());
+    obj->setProperty ("ltc_offset", ltcOffsetEditor_.getText());
+    obj->setProperty ("mtc_offset", mtcOffsetEditor_.getText());
+    obj->setProperty ("artnet_offset", artnetOffsetEditor_.getText());
+
+    if (cfgFile.replaceWithText (juce::JSON::toString (juce::var (obj.get()), true)))
+    {
+        lastConfigFile_ = cfgFile;
+        saveRuntimePrefs();
+        setStatusText ("STOPPED - config saved: " + cfgFile.getFileName(), juce::Colour::fromRGB (255, 120, 110));
+    }
+    else
+        setStatusText ("STOPPED - failed to save config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+}
+
+void MainContentComponent::loadConfigFromFile (const juce::File& cfgFile)
+{
+    if (! cfgFile.existsAsFile())
+    {
+        setStatusText ("STOPPED - config not found", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        return;
+    }
+
+    const auto parsed = juce::JSON::parse (cfgFile);
+    if (! parsed.isObject())
+    {
+        setStatusText ("STOPPED - invalid config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        return;
+    }
+
+    auto* obj = parsed.getDynamicObject();
+    if (obj == nullptr)
+        return;
+
+    auto propOr = [obj] (juce::Identifier key, juce::var fallback) -> juce::var
+    {
+        return obj->hasProperty (key) ? obj->getProperty (key) : fallback;
+    };
+
+    auto setComboText = [] (juce::ComboBox& combo, const juce::String& text)
+    {
+        for (int i = 0; i < combo.getNumItems(); ++i)
+        {
+            if (combo.getItemText (i) == text)
+            {
+                combo.setSelectedItemIndex (i, juce::dontSendNotification);
+                return;
+            }
+        }
+    };
+
+    sourceCombo_.setSelectedId ((int) propOr ("source", sourceCombo_.getSelectedId()), juce::dontSendNotification);
+    sourceExpanded_ = (bool) propOr ("source_expanded", sourceExpanded_);
+    outLtcExpanded_ = (bool) propOr ("out_ltc_expanded", outLtcExpanded_);
+    outMtcExpanded_ = (bool) propOr ("out_mtc_expanded", outMtcExpanded_);
+    outArtExpanded_ = (bool) propOr ("out_artnet_expanded", outArtExpanded_);
+    closeToTray_ = (bool) propOr ("close_to_tray", closeToTray_);
+
+    setComboText (ltcInDriverCombo_, propOr ("ltc_in_driver", ltcInDriverCombo_.getText()).toString());
+    setComboText (ltcOutDriverCombo_, propOr ("ltc_out_driver", ltcOutDriverCombo_.getText()).toString());
+    refreshLtcDeviceListsByDriver();
+    setComboText (ltcInDeviceCombo_, propOr ("ltc_in_device", ltcInDeviceCombo_.getText()).toString());
+    setComboText (ltcOutDeviceCombo_, propOr ("ltc_out_device", ltcOutDeviceCombo_.getText()).toString());
+    setComboText (mtcInCombo_, propOr ("mtc_in", mtcInCombo_.getText()).toString());
+    setComboText (mtcOutCombo_, propOr ("mtc_out", mtcOutCombo_.getText()).toString());
+    setComboText (artnetInCombo_, propOr ("artnet_in", artnetInCombo_.getText()).toString());
+    setComboText (artnetOutCombo_, propOr ("artnet_out", artnetOutCombo_.getText()).toString());
+    setComboText (oscAdapterCombo_, propOr ("osc_adapter", oscAdapterCombo_.getText()).toString());
+    setComboText (oscFpsCombo_, propOr ("osc_fps", oscFpsCombo_.getText()).toString());
+
+    oscIpEditor_.setText (propOr ("osc_ip", oscIpEditor_.getText()).toString(), juce::dontSendNotification);
+    oscPortEditor_.setText (propOr ("osc_port", oscPortEditor_.getText()).toString(), juce::dontSendNotification);
+    oscAddrStrEditor_.setText (propOr ("osc_str", oscAddrStrEditor_.getText()).toString(), juce::dontSendNotification);
+    oscAddrFloatEditor_.setText (propOr ("osc_float", oscAddrFloatEditor_.getText()).toString(), juce::dontSendNotification);
+    artnetDestIpEditor_.setText (propOr ("artnet_dest", artnetDestIpEditor_.getText()).toString(), juce::dontSendNotification);
+    ltcOffsetEditor_.setText (propOr ("ltc_offset", ltcOffsetEditor_.getText()).toString(), juce::dontSendNotification);
+    mtcOffsetEditor_.setText (propOr ("mtc_offset", mtcOffsetEditor_.getText()).toString(), juce::dontSendNotification);
+    artnetOffsetEditor_.setText (propOr ("artnet_offset", artnetOffsetEditor_.getText()).toString(), juce::dontSendNotification);
+
+    sourceExpandBtn_.setExpanded (sourceExpanded_);
+    outLtcExpandBtn_.setExpanded (outLtcExpanded_);
+    outMtcExpandBtn_.setExpanded (outMtcExpanded_);
+    outArtExpandBtn_.setExpanded (outArtExpanded_);
+
+    restartSelectedSource();
+    onOutputSettingsChanged();
+    updateWindowHeight();
+    resized();
+    lastConfigFile_ = cfgFile;
+    saveRuntimePrefs();
+    setStatusText ("STOPPED - config loaded: " + cfgFile.getFileName(), juce::Colour::fromRGB (255, 120, 110));
+}
+
+juce::File MainContentComponent::prefsFilePath() const
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("EasyBridge")
+        .getChildFile ("runtime_prefs.json");
+}
+
+void MainContentComponent::loadRuntimePrefs()
+{
+    const auto prefs = prefsFilePath();
+    if (! prefs.existsAsFile())
+        return;
+
+    const auto parsed = juce::JSON::parse (prefs);
+    if (! parsed.isObject())
+        return;
+
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        if (obj->hasProperty ("auto_load_on_startup"))
+            autoLoadOnStartup_ = (bool) obj->getProperty ("auto_load_on_startup");
+        if (obj->hasProperty ("close_to_tray"))
+            closeToTray_ = (bool) obj->getProperty ("close_to_tray");
+        if (obj->hasProperty ("last_config_path"))
+        {
+            const auto path = obj->getProperty ("last_config_path").toString();
+            if (path.isNotEmpty())
+                lastConfigFile_ = juce::File (path);
+        }
+    }
+}
+
+void MainContentComponent::saveRuntimePrefs() const
+{
+    auto prefs = prefsFilePath();
+    prefs.getParentDirectory().createDirectory();
+
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty ("auto_load_on_startup", autoLoadOnStartup_);
+    obj->setProperty ("close_to_tray", closeToTray_);
+    obj->setProperty ("last_config_path", lastConfigFile_.getFullPathName());
+    prefs.replaceWithText (juce::JSON::toString (juce::var (obj.get()), true));
+}
+
+void MainContentComponent::maybeAutoLoadConfig()
+{
+    if (autoLoadOnStartup_ && lastConfigFile_.existsAsFile())
+        loadConfigFromFile (lastConfigFile_);
+}
+
+void MainContentComponent::resetToDefaults()
+{
+    sourceCombo_.setSelectedId (1, juce::dontSendNotification);
+    sourceExpanded_ = true;
+    outLtcExpanded_ = false;
+    outMtcExpanded_ = false;
+    outArtExpanded_ = false;
+    sourceExpandBtn_.setExpanded (sourceExpanded_);
+    outLtcExpandBtn_.setExpanded (outLtcExpanded_);
+    outMtcExpandBtn_.setExpanded (outMtcExpanded_);
+    outArtExpandBtn_.setExpanded (outArtExpanded_);
+
+    ltcOutSwitch_.setState (false);
+    mtcOutSwitch_.setState (false);
+    artnetOutSwitch_.setState (false);
+    ltcThruDot_.setState (false);
+    mtcThruDot_.setState (false);
+    ltcOffsetEditor_.setText ("0", juce::dontSendNotification);
+    mtcOffsetEditor_.setText ("0", juce::dontSendNotification);
+    artnetOffsetEditor_.setText ("0", juce::dontSendNotification);
+    oscPortEditor_.setText ("9000", juce::dontSendNotification);
+    oscIpEditor_.setText ("0.0.0.0", juce::dontSendNotification);
+    oscAddrStrEditor_.setText ("/frames/str", juce::dontSendNotification);
+    oscAddrFloatEditor_.setText ("/time", juce::dontSendNotification);
+
+    restartSelectedSource();
+    onOutputSettingsChanged();
+    updateWindowHeight();
+    resized();
+    setStatusText ("Config reset", juce::Colour::fromRGB (255, 120, 110));
+}
+
+void MainContentComponent::openSettingsMenu()
+{
+    juce::PopupMenu m;
+    m.addItem (1, "Save config...");
+    m.addItem (2, "Load config...");
+    m.addItem (3, "Reset config");
+    m.addSeparator();
+    m.addItem (5, "Load on startup", true, autoLoadOnStartup_);
+    m.addItem (4, "Close to tray", true, closeToTray_);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton_),
+                     [safe = juce::Component::SafePointer<MainContentComponent> (this)] (int result)
+                     {
+                         if (safe == nullptr)
+                             return;
+
+                         switch (result)
+                         {
+                             case 1: safe->saveConfigAs(); break;
+                             case 2: safe->loadConfigFrom(); break;
+                             case 3: safe->resetToDefaults(); break;
+                             case 4:
+                                 safe->closeToTray_ = ! safe->closeToTray_;
+                                 safe->saveRuntimePrefs();
+                                 safe->setStatusText (safe->closeToTray_ ? "STOPPED - close to tray ON" : "STOPPED - close to tray OFF",
+                                                      juce::Colour::fromRGB (255, 120, 110));
+                                 break;
+                             case 5:
+                                 safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
+                                 safe->saveRuntimePrefs();
+                                 safe->setStatusText (safe->autoLoadOnStartup_ ? "STOPPED - load on startup ON"
+                                                                                : "STOPPED - load on startup OFF",
+                                                      juce::Colour::fromRGB (255, 120, 110));
+                                 break;
+                             default: break;
+                         }
+                     });
+}
+
+void MainContentComponent::openHelpPage()
+{
+    auto base = findBridgeBaseDir();
+    if (! base.exists())
+        return;
+
+    auto help = base.getChildFile ("Help/easy_bridge_v2_help.html");
+    if (help.existsAsFile())
+        juce::URL (help.getFullPathName()).launchInDefaultBrowser();
+}
+
 MainWindow::MainWindow()
-    : juce::DocumentWindow ("Easy Bridge v2 " + juce::String (version::kAppVersion),
+    : juce::DocumentWindow ("Easy Bridge",
                             juce::Colours::black,
                             juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton)
 {
-    setUsingNativeTitleBar (false);
+    setUsingNativeTitleBar (true);
     setResizable (false, false);
     setResizeLimits (430, 420, 430, 1600);
     setContentOwned (new MainContentComponent(), true);
+    const auto icon = loadBridgeAppIcon();
+    setIcon (icon);
+    createTrayIcon();
+    if (trayIcon_ != nullptr && icon.isValid())
+        trayIcon_->setIconImage (icon, icon);
     centreWithSize (430, 420);
     setVisible (true);
+
+#if JUCE_WINDOWS
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainWindow> (this)]
+    {
+        if (safe != nullptr)
+            applyNativeDarkTitleBar (*safe);
+    });
+#endif
 }
+
+MainWindow::~MainWindow() = default;
 
 void MainWindow::closeButtonPressed()
 {
+    if (quittingFromMenu_)
+    {
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        return;
+    }
+
+    bool closeToTray = true;
+    if (auto* content = dynamic_cast<MainContentComponent*> (getContentComponent()))
+        closeToTray = content->closeToTrayEnabled();
+
+    if (closeToTray)
+    {
+        setVisible (false);
+        if (trayIcon_ != nullptr)
+            trayIcon_->showInfoBubble ("Easy Bridge", "Running in system tray");
+        return;
+    }
+
+    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+}
+
+void MainWindow::createTrayIcon()
+{
+    trayIcon_ = std::make_unique<BridgeTrayIcon> (*this);
+    trayIcon_->setIconTooltip ("Easy Bridge");
+}
+
+void MainWindow::showFromTray()
+{
+    setVisible (true);
+    setMinimised (false);
+    toFront (true);
+}
+
+void MainWindow::quitFromTray()
+{
+    quittingFromMenu_ = true;
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 } // namespace bridge

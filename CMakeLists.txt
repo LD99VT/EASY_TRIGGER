@@ -25,6 +25,7 @@ target_sources(MTC_Bridge PRIVATE
   Source/App.h
   Source/MainWindow.cpp
   Source/MainWindow.h
+  Source/AppIcon.rc
   Source/engine/BridgeEngine.cpp
   Source/engine/BridgeEngine.h
   Source/engine/OscInput.cpp

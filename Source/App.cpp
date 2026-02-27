@@ -6,7 +6,7 @@ namespace bridge
 {
 const juce::String BridgeApplication::getApplicationName()
 {
-    return "Easy Bridge v2";
+    return "Easy Bridge";
 }
 
 const juce::String BridgeApplication::getApplicationVersion()

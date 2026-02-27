@@ -199,6 +199,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool closeToTrayEnabled() const { return closeToTray_; }
 
 private:
     void timerCallback() override;
@@ -225,6 +226,20 @@ private:
     static void styleEditor (juce::TextEditor& e);
     static void styleSlider (juce::Slider& s, bool dbStyle);
     void syncOscIpWithAdapter();
+    juce::File findBridgeBaseDir() const;
+    void setStatusText (const juce::String& text, juce::Colour colour);
+    void openStatusMonitorWindow();
+    void openSettingsMenu();
+    void saveConfigAs();
+    void loadConfigFrom();
+    void saveConfigToFile (const juce::File& cfgFile);
+    void loadConfigFromFile (const juce::File& cfgFile);
+    juce::File prefsFilePath() const;
+    void loadRuntimePrefs();
+    void saveRuntimePrefs() const;
+    void maybeAutoLoadConfig();
+    void resetToDefaults();
+    void openHelpPage();
 
     engine::BridgeEngine bridgeEngine_;
     juce::Array<engine::AudioChoice> inputChoices_;
@@ -240,10 +255,20 @@ private:
     Timecode latchedTc_ {};
     FrameRate latchedFps_ { FrameRate::FPS_25 };
 
-    juce::Label titleLabel_;
+    juce::Label titleEasyLabel_;
+    juce::Label titleBridgeLabel_;
+    juce::Label titleVersionLabel_;
+    juce::TextButton helpButton_ { "?" };
     juce::Label tcLabel_;
     juce::Label tcFpsLabel_;
-    juce::Label statusLabel_;
+    juce::TextButton statusButton_;
+    juce::TextButton settingsButton_ { "Settings" };
+    juce::TextButton quitButton_ { "Quit" };
+    bool closeToTray_ { false };
+    bool autoLoadOnStartup_ { false };
+    juce::File lastConfigFile_;
+    std::unique_ptr<juce::FileChooser> saveChooser_;
+    std::unique_ptr<juce::FileChooser> loadChooser_;
 
     juce::ComboBox sourceCombo_;
     ExpandCircleButton sourceExpandBtn_;
@@ -326,12 +351,23 @@ private:
 
     juce::Array<juce::Rectangle<int>> paramRowRects_;
     juce::Array<juce::Rectangle<int>> sectionRowRects_;
+    juce::Rectangle<int> headerRect_;
+    juce::Rectangle<int> statusRect_;
+    juce::Rectangle<int> buttonRowRect_;
 };
 
 class MainWindow final : public juce::DocumentWindow
 {
 public:
     MainWindow();
+    ~MainWindow() override;
     void closeButtonPressed() override;
+    void createTrayIcon();
+    void showFromTray();
+    void quitFromTray();
+
+private:
+    std::unique_ptr<juce::SystemTrayIconComponent> trayIcon_;
+    bool quittingFromMenu_ { false };
 };
 } // namespace bridge

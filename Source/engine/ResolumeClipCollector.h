@@ -3,6 +3,7 @@
 #include <juce_osc/juce_osc.h>
 #include <juce_core/juce_core.h>
 #include <map>
+#include <unordered_map>
 
 namespace trigger::engine
 {
@@ -14,6 +15,7 @@ struct ClipTriggerInfo
     juce::String clipName;
     double offsetSeconds { 0.0 };
     double durationSeconds { 0.0 };
+    bool hasOffset { false };
     bool connected { false };
 };
 
@@ -37,6 +39,8 @@ public:
 
 private:
     void oscMessageReceived (const juce::OSCMessage& msg) override;
+    void oscBundleReceived (const juce::OSCBundle& bundle) override;
+    void handleMessage (const juce::OSCMessage& msg);
     void touchClip (int layer, int clip);
 
     juce::OSCSender sender_;
@@ -48,9 +52,11 @@ private:
         juce::String clipName;
         double offset { 0.0 };
         double duration { 0.0 };
+        bool hasOffset { false };
         bool connected { false };
     };
     std::map<std::pair<int, int>, RawClip> clips_;
+    std::unordered_map<int, juce::String> layerNames_;
     mutable juce::CriticalSection lock_;
 };
 } // namespace trigger::engine

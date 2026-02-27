@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+Set-Location -LiteralPath $PSScriptRoot
 
 $cmake = Get-Command cmake -ErrorAction SilentlyContinue
 if (-not $cmake) {

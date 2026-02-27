@@ -1,4 +1,4 @@
-#include "TriggerMainWindow.h"
+﻿#include "TriggerMainWindow.h"
 #include "core/BridgeVersion.h"
 #include <algorithm>
 #include <array>

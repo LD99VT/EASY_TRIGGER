@@ -1,4 +1,4 @@
-#include "MainWindow.h"
+﻿#include "MainWindow.h"
 #include "core/BridgeVersion.h"
 #include <cmath>
 
@@ -990,7 +990,7 @@ void MainContentComponent::timerCallback()
     auto st = bridgeEngine_.tick();
 
     const float peak = bridgeEngine_.getLtcInputPeakLevel();
-    // Same behavior as SuperTimecodeConverter: instant attack, exponential decay.
+    // Instant attack with exponential decay for responsive level metering.
     ltcInLevelSmoothed_ = (peak > ltcInLevelSmoothed_) ? peak : (ltcInLevelSmoothed_ * 0.85f);
     ltcInLevelBar_.setLevel (ltcInLevelSmoothed_);
 

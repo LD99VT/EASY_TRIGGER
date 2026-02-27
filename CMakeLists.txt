@@ -52,10 +52,6 @@ target_link_libraries(EasyTrigger PRIVATE
   juce::juce_osc
 )
 
-target_include_directories(EasyTrigger PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SuperTimecodeConverter
-)
-
 if(WIN32)
   target_link_libraries(EasyTrigger PRIVATE ws2_32)
 endif()

@@ -1,8 +1,8 @@
-#pragma once
+﻿#pragma once
 
 #include <JuceHeader.h>
 
-#include "TimecodeCore.h"
+#include "vendor/timecode/EngineTimecodeCore.h"
 
 #include <atomic>
 

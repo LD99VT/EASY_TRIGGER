@@ -1,35 +1,35 @@
 #include "App.h"
-#include "MainWindow.h"
+#include "TriggerMainWindow.h"
 #include "core/BridgeVersion.h"
 
-namespace bridge
+namespace trigger
 {
-const juce::String BridgeApplication::getApplicationName()
+const juce::String TriggerApplication::getApplicationName()
 {
-    return "Easy Bridge";
+    return "Easy Trigger";
 }
 
-const juce::String BridgeApplication::getApplicationVersion()
+const juce::String TriggerApplication::getApplicationVersion()
 {
-    return version::kAppVersion;
+    return bridge::version::kAppVersion;
 }
 
-void BridgeApplication::initialise (const juce::String&)
+void TriggerApplication::initialise (const juce::String&)
 {
     mainWindow_ = std::make_unique<MainWindow>();
 }
 
-void BridgeApplication::shutdown()
+void TriggerApplication::shutdown()
 {
     mainWindow_.reset();
 }
 
-void BridgeApplication::systemRequestedQuit()
+void TriggerApplication::systemRequestedQuit()
 {
     quit();
 }
 
-void BridgeApplication::anotherInstanceStarted (const juce::String&)
+void TriggerApplication::anotherInstanceStarted (const juce::String&)
 {
 }
-} // namespace bridge
+} // namespace trigger

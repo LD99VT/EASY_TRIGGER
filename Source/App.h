@@ -1,12 +1,12 @@
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
-#include "MainWindow.h"
+#include "TriggerMainWindow.h"
 #include <memory>
 
-namespace bridge
+namespace trigger
 {
-class BridgeApplication final : public juce::JUCEApplication
+class TriggerApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override;
@@ -21,4 +21,4 @@ public:
 private:
     std::unique_ptr<MainWindow> mainWindow_;
 };
-} // namespace bridge
+} // namespace trigger

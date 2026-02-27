@@ -25,16 +25,16 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $exe = "build/windows-msvc/MTC_Bridge_artefacts/Release/Easy Bridge v2.exe"
+          $exe = "build/windows-msvc/EasyTrigger_artefacts/Release/Easy Trigger v2.exe"
           if (!(Test-Path $exe)) { throw "Release exe not found: $exe" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path $exe -DestinationPath "dist/EasyBridge-win64.zip" -Force
+          Compress-Archive -Path $exe -DestinationPath "dist/EasyTrigger-win64.zip" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: easybridge-win64
-          path: dist/EasyBridge-win64.zip
+          name: easytrigger-win64
+          path: dist/EasyTrigger-win64.zip
 
   build-macos:
     runs-on: macos-latest
@@ -50,19 +50,19 @@ jobs:
 
       - name: Package
         run: |
-          APP_PATH=$(find build/macos-universal -type d -name "Easy Bridge v2.app" | head -n 1)
+          APP_PATH=$(find build/macos-universal -type d -name "Easy Trigger v2.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "Release app bundle not found"
             exit 1
           fi
           mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/EasyBridge-macos-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/EasyTrigger-macos-universal.zip"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: easybridge-macos-universal
-          path: dist/EasyBridge-macos-universal.zip
+          name: easytrigger-macos-universal
+          path: dist/EasyTrigger-macos-universal.zip
 
   publish-release:
     needs: [build-windows, build-macos]
@@ -78,6 +78,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/easybridge-win64/EasyBridge-win64.zip
-            dist/easybridge-macos-universal/EasyBridge-macos-universal.zip
+            dist/easytrigger-win64/EasyTrigger-win64.zip
+            dist/easytrigger-macos-universal/EasyTrigger-macos-universal.zip
           generate_release_notes: true

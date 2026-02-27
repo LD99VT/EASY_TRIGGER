@@ -11,7 +11,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "EXE=%~dp0build\windows-msvc\MTC_Bridge_artefacts\Release\Easy Bridge v2.exe"
+set "EXE=%~dp0build\windows-msvc\EasyTrigger_artefacts\Release\Easy Trigger v2.exe"
 if not exist "%EXE%" (
   echo.
   echo EXE not found:

@@ -1,15 +1,15 @@
-# MTC Bridge JUCE Rewrite
+# Easy Trigger JUCE
 
-Cross-platform C++ rewrite target for Easy Bridge v2 (Windows + macOS) with shared LTC core direction.
+Cross-platform C++/JUCE client for Resolume clip triggers with shared LTC/TC core.
 
 ## Current status
 
 - JUCE app skeleton is created.
-- Core modules ported from Python:
+- Core modules ported/shared from bridge:
   - `Timecode` (including 29.97 DF math)
   - `ClockState` (thread-safe monotonic sync model)
   - `ConfigStore` (JSON load/save)
-- UI is a placeholder frame preserving Bridge layout zones (IN / OUT / STATUS), no final styling yet.
+- UI implements the Easy Trigger layout for Resolume layer/clip triggers.
 
 ## Prerequisites
 
@@ -70,5 +70,5 @@ git push origin v2.4.13
 ```
 
 Produced assets:
-- `EasyBridge-win64.zip` (Windows exe)
-- `EasyBridge-macos-universal.zip` (macOS .app bundle)
+- `EasyTrigger-win64.zip` (Windows exe)
+- `EasyTrigger-macos-universal.zip` (macOS .app bundle)

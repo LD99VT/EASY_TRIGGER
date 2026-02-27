@@ -1,4 +1,3 @@
 #include "App.h"
 
-START_JUCE_APPLICATION (bridge::BridgeApplication)
-
+START_JUCE_APPLICATION (trigger::TriggerApplication)

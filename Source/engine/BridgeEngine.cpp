@@ -75,7 +75,11 @@ juce::StringArray BridgeEngine::artnetInterfaces()
 
 bool BridgeEngine::startLtcInput (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut)
 {
-    if (! ltcInput_.start (choice.typeName, choice.deviceName, juce::jmax (0, channel), -1, sampleRate, bufferSize))
+    const int ch = juce::jmax (0, channel);
+    bool ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, sampleRate, bufferSize);
+    if (! ok && (sampleRate > 0.0 || bufferSize > 0))
+        ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, 0.0, 0);
+    if (! ok)
     {
         errorOut = "Failed to start LTC input";
         return false;
@@ -83,7 +87,7 @@ bool BridgeEngine::startLtcInput (const AudioChoice& choice, int channel, double
 
     ltcInType_ = choice.typeName;
     ltcInDevice_ = choice.deviceName;
-    ltcInChannel_ = juce::jmax (0, channel);
+    ltcInChannel_ = ch;
     errorOut.clear();
     return true;
 }
@@ -166,7 +170,14 @@ bool BridgeEngine::startLtcOutput (const AudioChoice& choice, int channel, doubl
         && std::abs (sampleRate - ltcOutSampleRate_) < 0.5
         && bufferSize == ltcOutBufferSize_;
 
-    if (! sameConfig && ! ltcOutput_.start (choice.typeName, choice.deviceName, ch, sampleRate, bufferSize))
+    bool started = true;
+    if (! sameConfig)
+    {
+        started = ltcOutput_.start (choice.typeName, choice.deviceName, ch, sampleRate, bufferSize);
+        if (! started && (sampleRate > 0.0 || bufferSize > 0))
+            started = ltcOutput_.start (choice.typeName, choice.deviceName, ch, 0.0, 0);
+    }
+    if (! started)
     {
         errorOut = "Failed to start LTC output";
         return false;

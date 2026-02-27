@@ -56,6 +56,25 @@ target_link_libraries(EasyTrigger PRIVATE
 
 if(WIN32)
   set(ASIO_SDK_DIR "$ENV{ASIO_SDK_DIR}" CACHE PATH "Path to Steinberg ASIO SDK root")
+  if(NOT ASIO_SDK_DIR)
+    set(_asio_candidates
+      "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asiosdk"
+      "C:/ASIOSDK"
+      "C:/SDK/ASIOSDK"
+      "C:/SDK/asiosdk"
+      "$ENV{USERPROFILE}/Downloads/asiosdk"
+      "$ENV{USERPROFILE}/Downloads/ASIOSDK"
+      "$ENV{USERPROFILE}/Desktop/asiosdk"
+      "$ENV{USERPROFILE}/Desktop/ASIOSDK"
+    )
+    foreach(_cand IN LISTS _asio_candidates)
+      if(EXISTS "${_cand}/common/asio.h" AND EXISTS "${_cand}/host/asiodrivers.h")
+        set(ASIO_SDK_DIR "${_cand}" CACHE PATH "Path to Steinberg ASIO SDK root" FORCE)
+        break()
+      endif()
+    endforeach()
+  endif()
   if(ASIO_SDK_DIR)
     if(EXISTS "${ASIO_SDK_DIR}/common/asio.h" AND EXISTS "${ASIO_SDK_DIR}/host/asiodrivers.h")
       target_compile_definitions(EasyTrigger PRIVATE JUCE_ASIO=1)
@@ -67,6 +86,8 @@ if(WIN32)
     else()
       message(WARNING "ASIO_SDK_DIR is set but required headers were not found in common/ and host/. ASIO disabled.")
     endif()
+  else()
+    message(STATUS "ASIO SDK not found for EasyTrigger. Build will not include ASIO/ReaRoute devices.")
   endif()
   target_link_libraries(EasyTrigger PRIVATE ws2_32)
 endif()

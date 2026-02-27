@@ -180,6 +180,7 @@ public:
     void resized() override;
 
 private:
+    class AudioScanThread;
     struct TriggerClip
     {
         int layer { 0 };
@@ -225,13 +226,21 @@ private:
     void queryResolume();
     void updateClipCountdowns();
     void evaluateAndFireTriggers();
+    void startAudioDeviceScan();
+    void onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
+                              const juce::Array<bridge::engine::AudioChoice>& outputs);
     void sendTestTrigger (int layer, int clip);
-    juce::Array<bridge::engine::AudioChoice> filteredLtcInputs() const;
+    juce::Array<bridge::engine::AudioChoice> filteredLtcInputs();
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
 
     bridge::engine::BridgeEngine bridgeEngine_;
     trigger::engine::ResolumeClipCollector clipCollector_;
+    juce::Array<bridge::engine::AudioChoice> allInputChoices_;
+    juce::Array<bridge::engine::AudioChoice> allOutputChoices_;
+    juce::Array<int> filteredInputIndices_;
+    juce::Array<int> filteredOutputIndices_;
+    std::unique_ptr<AudioScanThread> scanThread_;
     juce::Array<bridge::engine::AudioChoice> ltcOutChoices_;
     std::vector<TriggerClip> triggerRows_;
     std::vector<DisplayRow> displayRows_;

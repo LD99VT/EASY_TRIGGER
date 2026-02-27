@@ -9,6 +9,8 @@ namespace trigger
 {
 namespace
 {
+constexpr int kPlaceholderItemId = 10000;
+
 juce::String inputSourceName (int id)
 {
     switch (id)
@@ -38,12 +40,7 @@ bool matchesDriverFilter (const juce::String& driverUi, const juce::String& type
     if (d.startsWith ("default"))
         return true;
     const auto t = normalizeDriverKey (typeName);
-    if (d == "asio") return t.contains ("asio");
-    if (d == "directsound") return t.contains ("directsound");
-    if (d == "coreaudio") return t.contains ("coreaudio");
-    if (d == "alsa") return t.contains ("alsa");
-    if (d == "windowsaudio") return t.contains ("windowsaudio");
-    return t == d || t.contains (d);
+    return t == d;
 }
 
 void fillDriverCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::AudioChoice>& choices, const juce::String& previousText)
@@ -110,6 +107,36 @@ void logUi (const juce::String& line)
     auto file = exeDir.getChildFile ("easytrigger_ui.log");
     const auto text = juce::Time::getCurrentTime().toString (true, true) + " | " + line + "\n";
     file.appendText (text, false, false, "\n");
+}
+
+int findFilteredIndex (const juce::Array<int>& filteredIndices,
+                       const juce::Array<bridge::engine::AudioChoice>& entries,
+                       const juce::String& typeName,
+                       const juce::String& deviceName)
+{
+    if (deviceName.isEmpty())
+        return -1;
+
+    if (typeName.isNotEmpty())
+    {
+        for (int i = 0; i < filteredIndices.size(); ++i)
+        {
+            const int realIdx = filteredIndices[i];
+            if (juce::isPositiveAndBelow (realIdx, entries.size())
+                && entries[realIdx].typeName == typeName
+                && entries[realIdx].deviceName == deviceName)
+                return i;
+        }
+    }
+
+    for (int i = 0; i < filteredIndices.size(); ++i)
+    {
+        const int realIdx = filteredIndices[i];
+        if (juce::isPositiveAndBelow (realIdx, entries.size())
+            && entries[realIdx].deviceName == deviceName)
+            return i;
+    }
+    return -1;
 }
 
 class InlineTextCell final : public juce::TextEditor
@@ -317,6 +344,64 @@ private:
 };
 }
 
+class TriggerContentComponent::AudioScanThread final : public juce::Thread
+{
+public:
+    explicit AudioScanThread (TriggerContentComponent* owner)
+        : juce::Thread ("TriggerAudioDeviceScan"), safeOwner_ (owner)
+    {
+    }
+
+    void run() override
+    {
+        juce::Array<bridge::engine::AudioChoice> inputs;
+        juce::Array<bridge::engine::AudioChoice> outputs;
+
+        juce::AudioDeviceManager tempMgr;
+        tempMgr.initialise (128, 128, nullptr, false);
+
+        for (auto* type : tempMgr.getAvailableDeviceTypes())
+        {
+            if (threadShouldExit())
+                return;
+
+            type->scanForDevices();
+            const auto typeName = type->getTypeName();
+
+            for (const auto& name : type->getDeviceNames (true))
+            {
+                bridge::engine::AudioChoice c;
+                c.typeName = typeName;
+                c.deviceName = name;
+                c.displayName = typeName + ": " + name;
+                inputs.add (c);
+            }
+
+            for (const auto& name : type->getDeviceNames (false))
+            {
+                bridge::engine::AudioChoice c;
+                c.typeName = typeName;
+                c.deviceName = name;
+                c.displayName = typeName + ": " + name;
+                outputs.add (c);
+            }
+        }
+
+        if (threadShouldExit())
+            return;
+
+        auto safe = safeOwner_;
+        juce::MessageManager::callAsync ([safe, inputs, outputs]()
+        {
+            if (auto* owner = safe.getComponent())
+                owner->onAudioScanComplete (inputs, outputs);
+        });
+    }
+
+private:
+    juce::Component::SafePointer<TriggerContentComponent> safeOwner_;
+};
+
 TriggerContentComponent::TriggerContentComponent()
 {
     loadFonts();
@@ -349,23 +434,27 @@ TriggerContentComponent::TriggerContentComponent()
     sourceCombo_.setSelectedId (1, juce::dontSendNotification);
     sourceCombo_.onChange = [this]
     {
-        refreshInputsForSource();
-        startInput();
+        startAudioDeviceScan();
         resized();
         repaint();
     };
 
     sourceDriverCombo_.addItem ("Default (all devices)", 1);
     sourceDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceDriverCombo_.onChange = [this] { refreshInputsForSource(); startInput(); };
+    sourceDriverCombo_.onChange = [this] { startAudioDeviceScan(); };
 
     for (int i = 1; i <= 8; ++i)
     {
         sourceChannelCombo_.addItem (juce::String (i), i);
         ltcOutChannelCombo_.addItem (juce::String (i), i);
     }
-    sourceRateCombo_.addItem ("44100", 1);
-    sourceRateCombo_.addItem ("48000", 2);
+    sourceRateCombo_.addItem ("Default", 1);
+    sourceRateCombo_.addItem ("44100", 2);
+    sourceRateCombo_.addItem ("48000", 3);
+    sourceRateCombo_.addItem ("88200", 4);
+    sourceRateCombo_.addItem ("96000", 5);
+    sourceRateCombo_.addItem ("176400", 6);
+    sourceRateCombo_.addItem ("192000", 7);
     sourceRateCombo_.setSelectedId (1, juce::dontSendNotification);
     sourceChannelCombo_.setSelectedId (1, juce::dontSendNotification);
     ltcOutChannelCombo_.setSelectedId (1, juce::dontSendNotification);
@@ -403,11 +492,16 @@ TriggerContentComponent::TriggerContentComponent()
 
     ltcOutDriverCombo_.addItem ("Default (all devices)", 1);
     ltcOutDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutDriverCombo_.onChange = [this] { refreshLtcOutDevices(); applyLtcOutput(); };
+    ltcOutDriverCombo_.onChange = [this] { startAudioDeviceScan(); };
     ltcOutDeviceCombo_.onChange = [this] { applyLtcOutput(); };
     ltcOutChannelCombo_.onChange = [this] { applyLtcOutput(); };
-    ltcOutRateCombo_.addItem ("44100", 1);
-    ltcOutRateCombo_.addItem ("48000", 2);
+    ltcOutRateCombo_.addItem ("Default", 1);
+    ltcOutRateCombo_.addItem ("44100", 2);
+    ltcOutRateCombo_.addItem ("48000", 3);
+    ltcOutRateCombo_.addItem ("88200", 4);
+    ltcOutRateCombo_.addItem ("96000", 5);
+    ltcOutRateCombo_.addItem ("176400", 6);
+    ltcOutRateCombo_.addItem ("192000", 7);
     ltcOutRateCombo_.setSelectedId (1, juce::dontSendNotification);
     ltcOutRateCombo_.onChange = [this] { applyLtcOutput(); };
     ltcOutOffsetEditor_.setText ("0");
@@ -537,14 +631,14 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (getTriggersBtn_);
     addAndMakeVisible (triggerTable_);
 
-    refreshInputsForSource();
-    refreshLtcOutDevices();
-    startInput();
+    startAudioDeviceScan();
     startTimerHz (30);
 }
 
 TriggerContentComponent::~TriggerContentComponent()
 {
+    if (scanThread_ != nullptr && scanThread_->isThreadRunning())
+        scanThread_->stopThread (2000);
     clipCollector_.stopListening();
 }
 
@@ -1285,8 +1379,56 @@ void TriggerContentComponent::applyTheme()
     getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
 }
 
+void TriggerContentComponent::startAudioDeviceScan()
+{
+    if (scanThread_ != nullptr && scanThread_->isThreadRunning())
+    {
+        if (! scanThread_->stopThread (2000))
+            return;
+    }
+
+    scanThread_ = std::make_unique<AudioScanThread> (this);
+    scanThread_->startThread();
+}
+
+void TriggerContentComponent::onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
+                                                   const juce::Array<bridge::engine::AudioChoice>& outputs)
+{
+    allInputChoices_ = inputs;
+    allOutputChoices_ = outputs;
+    refreshInputsForSource();
+    refreshLtcOutDevices();
+    startInput();
+    applyLtcOutput();
+}
+
 void TriggerContentComponent::refreshInputsForSource()
 {
+    const auto prevInType = [&]() -> juce::String
+    {
+        const int id = sourceDeviceCombo_.getSelectedId();
+        const int idx = id > 0 ? id - 1 : -1;
+        if (juce::isPositiveAndBelow (idx, filteredInputIndices_.size()))
+        {
+            const int realIdx = filteredInputIndices_[idx];
+            if (juce::isPositiveAndBelow (realIdx, allInputChoices_.size()))
+                return allInputChoices_[realIdx].typeName;
+        }
+        return {};
+    }();
+    const auto prevInDevice = [&]() -> juce::String
+    {
+        const int id = sourceDeviceCombo_.getSelectedId();
+        const int idx = id > 0 ? id - 1 : -1;
+        if (juce::isPositiveAndBelow (idx, filteredInputIndices_.size()))
+        {
+            const int realIdx = filteredInputIndices_[idx];
+            if (juce::isPositiveAndBelow (realIdx, allInputChoices_.size()))
+                return allInputChoices_[realIdx].deviceName;
+        }
+        return {};
+    }();
+
     sourceDeviceCombo_.clear();
     sourceMtcCombo_.clear();
     sourceArtCombo_.clear();
@@ -1295,10 +1437,17 @@ void TriggerContentComponent::refreshInputsForSource()
     if (sourceCombo_.getSelectedId() == 1)
     {
         const auto prevDriver = sourceDriverCombo_.getText();
-        const auto allInputs = bridgeEngine_.scanAudioInputs();
-        fillDriverCombo (sourceDriverCombo_, allInputs, prevDriver);
+        fillDriverCombo (sourceDriverCombo_, allInputChoices_, prevDriver);
         sourceLtcChoices_ = filteredLtcInputs();
-        for (const auto& c : sourceLtcChoices_) names.add (c.displayName);
+        if (sourceLtcChoices_.isEmpty())
+        {
+            sourceDeviceCombo_.addItem ("(No audio devices)", kPlaceholderItemId);
+            sourceDeviceCombo_.setSelectedId (kPlaceholderItemId, juce::dontSendNotification);
+        }
+        else
+        {
+            for (const auto& c : sourceLtcChoices_) names.add (c.displayName);
+        }
     }
     else if (sourceCombo_.getSelectedId() == 2)
         names = bridgeEngine_.midiInputs();
@@ -1309,10 +1458,18 @@ void TriggerContentComponent::refreshInputsForSource()
 
     if (sourceCombo_.getSelectedId() == 1)
     {
-        for (int i = 0; i < names.size(); ++i)
-            sourceDeviceCombo_.addItem (names[i], i + 1);
-        if (sourceDeviceCombo_.getNumItems() > 0)
-            sourceDeviceCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
+        if (! sourceLtcChoices_.isEmpty())
+        {
+            for (int i = 0; i < names.size(); ++i)
+                sourceDeviceCombo_.addItem (names[i], i + 1);
+            sourceDeviceCombo_.setSelectedId (1, juce::dontSendNotification);
+            if (prevInDevice.isNotEmpty())
+            {
+                const int restoreIdx = findFilteredIndex (filteredInputIndices_, allInputChoices_, prevInType, prevInDevice);
+                if (restoreIdx >= 0)
+                    sourceDeviceCombo_.setSelectedId (restoreIdx + 1, juce::dontSendNotification);
+            }
+        }
         sourceDeviceCombo_.onChange = [this] { startInput(); };
     }
     else if (sourceCombo_.getSelectedId() == 2)
@@ -1336,17 +1493,62 @@ void TriggerContentComponent::refreshInputsForSource()
 void TriggerContentComponent::refreshLtcOutDevices()
 {
     const auto prevDriver = ltcOutDriverCombo_.getText();
-    auto all = bridgeEngine_.scanAudioOutputs();
-    fillDriverCombo (ltcOutDriverCombo_, all, prevDriver);
+    const auto prevOutType = [&]() -> juce::String
+    {
+        const int id = ltcOutDeviceCombo_.getSelectedId();
+        const int idx = id > 0 ? id - 1 : -1;
+        if (juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
+        {
+            const int realIdx = filteredOutputIndices_[idx];
+            if (juce::isPositiveAndBelow (realIdx, allOutputChoices_.size()))
+                return allOutputChoices_[realIdx].typeName;
+        }
+        return {};
+    }();
+    const auto prevOutDevice = [&]() -> juce::String
+    {
+        const int id = ltcOutDeviceCombo_.getSelectedId();
+        const int idx = id > 0 ? id - 1 : -1;
+        if (juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
+        {
+            const int realIdx = filteredOutputIndices_[idx];
+            if (juce::isPositiveAndBelow (realIdx, allOutputChoices_.size()))
+                return allOutputChoices_[realIdx].deviceName;
+        }
+        return {};
+    }();
+
+    fillDriverCombo (ltcOutDriverCombo_, allOutputChoices_, prevDriver);
     ltcOutChoices_.clear();
-    for (const auto& c : all)
+    filteredOutputIndices_.clear();
+    for (int i = 0; i < allOutputChoices_.size(); ++i)
+    {
+        const auto& c = allOutputChoices_[i];
         if (matchesDriverFilter (ltcOutDriverCombo_.getText(), c.typeName))
+        {
             ltcOutChoices_.add (c);
+            filteredOutputIndices_.add (i);
+        }
+    }
     ltcOutDeviceCombo_.clear();
-    for (int i = 0; i < ltcOutChoices_.size(); ++i)
-        ltcOutDeviceCombo_.addItem (ltcOutChoices_[i].displayName, i + 1);
-    if (ltcOutDeviceCombo_.getNumItems() > 0)
-        ltcOutDeviceCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
+    if (ltcOutChoices_.isEmpty())
+    {
+        ltcOutDeviceCombo_.addItem ("(No audio devices)", kPlaceholderItemId);
+        ltcOutDeviceCombo_.setSelectedId (kPlaceholderItemId, juce::dontSendNotification);
+    }
+    else
+    {
+        for (int i = 0; i < ltcOutChoices_.size(); ++i)
+            ltcOutDeviceCombo_.addItem (ltcOutChoices_[i].displayName, i + 1);
+        ltcOutDeviceCombo_.setSelectedId (1, juce::dontSendNotification);
+
+        if (prevOutDevice.isNotEmpty())
+        {
+            const int restoreIdx = findFilteredIndex (filteredOutputIndices_, allOutputChoices_, prevOutType, prevOutDevice);
+            if (restoreIdx >= 0)
+                ltcOutDeviceCombo_.setSelectedId (restoreIdx + 1, juce::dontSendNotification);
+        }
+    }
 }
 
 void TriggerContentComponent::startInput()
@@ -1362,12 +1564,24 @@ void TriggerContentComponent::startInput()
     {
         bridgeEngine_.setInputSource (bridge::engine::InputSource::LTC);
         sourceLtcChoices_ = filteredLtcInputs();
-        const int idx = sourceDeviceCombo_.getSelectedItemIndex();
+        const int selectedId = sourceDeviceCombo_.getSelectedId();
+        const int idx = selectedId > 0 ? selectedId - 1 : -1;
+        double sr = 0.0;
+        switch (sourceRateCombo_.getSelectedId())
+        {
+            case 2: sr = 44100.0; break;
+            case 3: sr = 48000.0; break;
+            case 4: sr = 88200.0; break;
+            case 5: sr = 96000.0; break;
+            case 6: sr = 176400.0; break;
+            case 7: sr = 192000.0; break;
+            default: break;
+        }
         if (juce::isPositiveAndBelow (idx, sourceLtcChoices_.size()))
             bridgeEngine_.startLtcInput (sourceLtcChoices_[(size_t) idx],
                                          juce::jmax (0, sourceChannelCombo_.getSelectedId() - 1),
-                                         sourceRateCombo_.getSelectedId() == 2 ? 48000.0 : 44100.0,
-                                         512, err);
+                                         sr,
+                                         0, err);
     }
     else if (src == 2)
     {
@@ -1408,8 +1622,18 @@ void TriggerContentComponent::applyLtcOutput()
     const int idx = ltcOutDeviceCombo_.getSelectedItemIndex();
     if (juce::isPositiveAndBelow (idx, ltcOutChoices_.size()))
     {
-        const double sr = (ltcOutRateCombo_.getSelectedId() == 2 ? 48000.0 : 44100.0);
-        bridgeEngine_.startLtcOutput (ltcOutChoices_[idx], juce::jmax (0, ltcOutChannelCombo_.getSelectedId() - 1), sr, 512, err);
+        double sr = 0.0;
+        switch (ltcOutRateCombo_.getSelectedId())
+        {
+            case 2: sr = 44100.0; break;
+            case 3: sr = 48000.0; break;
+            case 4: sr = 88200.0; break;
+            case 5: sr = 96000.0; break;
+            case 6: sr = 176400.0; break;
+            case 7: sr = 192000.0; break;
+            default: break;
+        }
+        bridgeEngine_.startLtcOutput (ltcOutChoices_[idx], juce::jmax (0, ltcOutChannelCombo_.getSelectedId() - 1), sr, 0, err);
         bridgeEngine_.setLtcOutputEnabled (true);
     }
     if (err.isNotEmpty())
@@ -1648,17 +1872,19 @@ void TriggerContentComponent::evaluateAndFireTriggers()
     triggerTable_.repaint();
 }
 
-juce::Array<bridge::engine::AudioChoice> TriggerContentComponent::filteredLtcInputs() const
+juce::Array<bridge::engine::AudioChoice> TriggerContentComponent::filteredLtcInputs()
 {
-    auto all = bridgeEngine_.scanAudioInputs();
     juce::Array<bridge::engine::AudioChoice> filtered;
-    for (const auto& c : all)
+    filteredInputIndices_.clear();
+    for (int i = 0; i < allInputChoices_.size(); ++i)
     {
+        const auto& c = allInputChoices_[i];
         if (matchesDriverFilter (sourceDriverCombo_.getText(), c.typeName))
+        {
             filtered.add (c);
+            filteredInputIndices_.add (i);
+        }
     }
-    if (filtered.isEmpty())
-        return all;
     return filtered;
 }
 

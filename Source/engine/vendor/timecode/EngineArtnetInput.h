@@ -38,13 +38,19 @@ public:
     bool didFallBackToAllInterfaces() const { return bindFellBack.load(std::memory_order_relaxed); }
 
     //==============================================================================
-    bool start(int interfaceIndex = 0, int port = 6454)
+    bool start(int interfaceIndex = 0, int port = 6454, const juce::String& bindIpOverride = {})
     {
         stop();
 
         listenPort = port;
 
-        if (interfaceIndex > 0 && (interfaceIndex - 1) < availableInterfaces.size())
+        const auto customBindIp = bindIpOverride.trim();
+        if (customBindIp.isNotEmpty())
+        {
+            selectedInterface = interfaceIndex;
+            bindIp = customBindIp;
+        }
+        else if (interfaceIndex > 0 && (interfaceIndex - 1) < availableInterfaces.size())
         {
             selectedInterface = interfaceIndex;
             bindIp = availableInterfaces[interfaceIndex - 1].ip;

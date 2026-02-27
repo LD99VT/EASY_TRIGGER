@@ -1,9 +1,10 @@
-﻿#include "TriggerMainWindow.h"
+#include "TriggerMainWindow.h"
 #include "core/BridgeVersion.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <thread>
 
 namespace trigger
 {
@@ -11,16 +12,58 @@ namespace
 {
 constexpr int kPlaceholderItemId = 10000;
 
-juce::String inputSourceName (int id)
+juce::String parseBindIpFromAdapterLabel (juce::String text)
 {
-    switch (id)
+    text = text.trim();
+    if (text.isEmpty())
+        return "0.0.0.0";
+
+    const auto lower = text.toLowerCase();
+    if (lower.contains ("loopback"))
+        return "127.0.0.1";
+    if (lower.contains ("all interfaces"))
+        return "0.0.0.0";
+
+    const int open = text.lastIndexOfChar ('(');
+    const int close = text.lastIndexOfChar (')');
+    if (open >= 0 && close > open)
     {
-        case 1: return "LTC";
-        case 2: return "MTC";
-        case 3: return "ArtNet";
-        case 4: return "OSC";
-        default: return "LTC";
+        const auto ip = text.substring (open + 1, close).trim();
+        if (ip.isNotEmpty())
+            return ip;
     }
+
+    return "0.0.0.0";
+}
+
+void setupDbSlider (juce::Slider& s)
+{
+    s.setSliderStyle (juce::Slider::LinearHorizontal);
+    s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+    s.setRange (-24, 24, 0.1);
+    s.setValue (0.0);
+}
+
+void fillRateCombo (juce::ComboBox& combo)
+{
+    combo.clear();
+    combo.addItem ("Default", 1);
+    combo.addItem ("44100", 2);
+    combo.addItem ("48000", 3);
+    combo.addItem ("88200", 4);
+    combo.addItem ("96000", 5);
+    combo.addItem ("176400", 6);
+    combo.addItem ("192000", 7);
+    combo.setSelectedId (1, juce::dontSendNotification);
+}
+
+void fillChannelCombo (juce::ComboBox& combo)
+{
+    combo.clear();
+    for (int i = 1; i <= 8; ++i)
+        combo.addItem (juce::String (i), i);
+    combo.addItem ("1+2", 100);
+    combo.setSelectedId (1, juce::dontSendNotification);
 }
 
 juce::String normalizeDriverKey (juce::String s)
@@ -54,6 +97,7 @@ void fillDriverCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::A
         if (c.typeName.isNotEmpty() && ! seen.contains (c.typeName))
             seen.add (c.typeName);
     }
+
     seen.sortNatural();
     for (int i = 0; i < seen.size(); ++i)
         combo.addItem (seen[i], i + 2);
@@ -73,6 +117,11 @@ void fillDriverCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::A
     combo.setSelectedId (1, juce::dontSendNotification);
 }
 
+float dbToLinearGain (double db)
+{
+    return (float) std::pow (10.0, db / 20.0);
+}
+
 juce::File findUiBaseDirFromExe()
 {
     auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
@@ -89,13 +138,24 @@ juce::File findUiBaseDirFromExe()
 
     for (auto r : roots)
     {
-        auto trigger = r.getChildFile ("EasyTrigger");
-        if (trigger.exists())
+        auto hasAssets = [&] (const juce::File& dir)
+        {
+            return dir.getChildFile ("Fonts").exists()
+                && dir.getChildFile ("Help").exists()
+                && (dir.getChildFile ("Icon").exists() || dir.getChildFile ("Icons").exists());
+        };
+
+        if (hasAssets (r))
+            return r;
+
+        auto trigger = r.getChildFile ("EASYTRIGGER-JYCE");
+        if (trigger.exists() && hasAssets (trigger))
             return trigger;
 
-        auto bridge = r.getChildFile ("MTC_Bridge");
-        if (bridge.exists())
-            return bridge;
+        trigger = r.getChildFile ("EasyTrigger");
+        if (trigger.exists() && hasAssets (trigger))
+            return trigger;
+
     }
 
     return {};
@@ -109,34 +169,22 @@ void logUi (const juce::String& line)
     file.appendText (text, false, false, "\n");
 }
 
-int findFilteredIndex (const juce::Array<int>& filteredIndices,
-                       const juce::Array<bridge::engine::AudioChoice>& entries,
-                       const juce::String& typeName,
-                       const juce::String& deviceName)
+juce::Image loadTriggerAppIcon()
 {
-    if (deviceName.isEmpty())
-        return -1;
+    auto base = findUiBaseDirFromExe();
+    if (! base.exists())
+        return {};
 
-    if (typeName.isNotEmpty())
-    {
-        for (int i = 0; i < filteredIndices.size(); ++i)
-        {
-            const int realIdx = filteredIndices[i];
-            if (juce::isPositiveAndBelow (realIdx, entries.size())
-                && entries[realIdx].typeName == typeName
-                && entries[realIdx].deviceName == deviceName)
-                return i;
-        }
-    }
+    auto icon = base.getChildFile ("Icon/Icon.png");
+    if (! icon.existsAsFile())
+        icon = base.getChildFile ("Icons/App_Icon.png");
+    if (! icon.existsAsFile())
+        return {};
 
-    for (int i = 0; i < filteredIndices.size(); ++i)
-    {
-        const int realIdx = filteredIndices[i];
-        if (juce::isPositiveAndBelow (realIdx, entries.size())
-            && entries[realIdx].deviceName == deviceName)
-            return i;
-    }
-    return -1;
+    auto in = std::unique_ptr<juce::FileInputStream> (icon.createInputStream());
+    if (in == nullptr)
+        return {};
+    return juce::ImageFileFormat::loadFrom (*in);
 }
 
 class InlineTextCell final : public juce::TextEditor
@@ -348,44 +396,20 @@ class TriggerContentComponent::AudioScanThread final : public juce::Thread
 {
 public:
     explicit AudioScanThread (TriggerContentComponent* owner)
-        : juce::Thread ("TriggerAudioDeviceScan"), safeOwner_ (owner)
-    {
-    }
+        : juce::Thread ("TriggerAudioScan"),
+          safeOwner_ (owner)
+    {}
 
     void run() override
     {
-        juce::Array<bridge::engine::AudioChoice> inputs;
-        juce::Array<bridge::engine::AudioChoice> outputs;
+        juce::Array<bridge::engine::AudioChoice> inputs, outputs;
 
-        juce::AudioDeviceManager tempMgr;
-        juce::OwnedArray<juce::AudioIODeviceType> types;
-        tempMgr.createAudioDeviceTypes (types);
-
-        for (auto* type : types)
+        if (auto* owner = safeOwner_.getComponent())
         {
+            inputs = owner->bridgeEngine_.scanAudioInputs();
             if (threadShouldExit())
                 return;
-
-            type->scanForDevices();
-            const auto typeName = type->getTypeName();
-
-            for (const auto& name : type->getDeviceNames (true))
-            {
-                bridge::engine::AudioChoice c;
-                c.typeName = typeName;
-                c.deviceName = name;
-                c.displayName = typeName + ": " + name;
-                inputs.add (c);
-            }
-
-            for (const auto& name : type->getDeviceNames (false))
-            {
-                bridge::engine::AudioChoice c;
-                c.typeName = typeName;
-                c.deviceName = name;
-                c.displayName = typeName + ": " + name;
-                outputs.add (c);
-            }
+            outputs = owner->bridgeEngine_.scanAudioOutputs();
         }
 
         if (threadShouldExit())
@@ -405,117 +429,131 @@ private:
 
 TriggerContentComponent::TriggerContentComponent()
 {
+    setOpaque (true);
     loadFonts();
     applyTheme();
 
-    easyLabel_.setText ("EASY", juce::dontSendNotification);
+    easyLabel_.setText ("EASY ", juce::dontSendNotification);
     easyLabel_.setJustificationType (juce::Justification::centredLeft);
     easyLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
-    easyLabel_.setFont (headerBold_.withHeight (34.0f));
+    easyLabel_.setFont (headerBold_.withHeight (32.0f));
     triggerLabel_.setText ("TRIGGER", juce::dontSendNotification);
     triggerLabel_.setJustificationType (juce::Justification::centredLeft);
     triggerLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xa1, 0xa5, 0xac));
-    triggerLabel_.setFont (headerLight_.withHeight (34.0f));
-    versionLabel_.setJustificationType (juce::Justification::centredRight);
+    triggerLabel_.setFont (headerLight_.withHeight (32.0f));
+    versionLabel_.setJustificationType (juce::Justification::centredLeft);
     versionLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0x8b, 0x91, 0x9a));
     versionLabel_.setFont (juce::FontOptions (12.0f));
     tcLabel_.setText ("00:00:00:00", juce::dontSendNotification);
     tcLabel_.setJustificationType (juce::Justification::centred);
-    tcLabel_.setColour (juce::Label::backgroundColourId, juce::Colour::fromRGB (20, 20, 20));
-    tcLabel_.setColour (juce::Label::outlineColourId, juce::Colour::fromRGB (48, 48, 48));
+    tcLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    tcLabel_.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
     tcLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (220, 216, 203));
-    tcLabel_.setFont (mono_.withHeight (62.0f));
+    tcLabel_.setFont (mono_.withHeight (68.0f));
     fpsLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
-    sourceLevelMeter_.setMeterColour (juce::Colour::fromRGB (0x3d, 0x80, 0x70));
 
     sourceCombo_.addItem ("LTC", 1);
     sourceCombo_.addItem ("MTC", 2);
     sourceCombo_.addItem ("ArtNet", 3);
     sourceCombo_.addItem ("OSC", 4);
     sourceCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceCombo_.onChange = [this]
+    styleCombo (sourceCombo_);
+    addAndMakeVisible (sourceHeaderLabel_);
+    sourceExpandBtn_.setExpanded (true);
+    sourceExpandBtn_.onClick = [this]
     {
-        refreshInputsForSource();
-        startInput();
+        sourceExpanded_ = ! sourceExpanded_;
+        sourceExpandBtn_.setExpanded (sourceExpanded_);
+        updateWindowHeight();
         resized();
         repaint();
     };
-
-    sourceDriverCombo_.addItem ("Default (all devices)", 1);
-    sourceDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceDriverCombo_.onChange = [this] { refreshInputsForSource(); startInput(); };
-
-    for (int i = 1; i <= 8; ++i)
-    {
-        sourceChannelCombo_.addItem (juce::String (i), i);
-        ltcOutChannelCombo_.addItem (juce::String (i), i);
-    }
-    sourceRateCombo_.addItem ("Default", 1);
-    sourceRateCombo_.addItem ("44100", 2);
-    sourceRateCombo_.addItem ("48000", 3);
-    sourceRateCombo_.addItem ("88200", 4);
-    sourceRateCombo_.addItem ("96000", 5);
-    sourceRateCombo_.addItem ("176400", 6);
-    sourceRateCombo_.addItem ("192000", 7);
-    sourceRateCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceChannelCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutChannelCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceChannelCombo_.onChange = [this] { startInput(); };
-    sourceRateCombo_.onChange = [this] { startInput(); };
-    sourceGainSlider_.setSliderStyle (juce::Slider::LinearHorizontal);
-    sourceGainSlider_.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
-    sourceGainSlider_.setRange (-24.0, 24.0, 0.1);
-    sourceGainSlider_.setValue (0.0);
-    sourceGainSlider_.onValueChange = [this]
-    {
-        bridgeEngine_.setLtcInputGain ((float) std::pow (10.0, sourceGainSlider_.getValue() / 20.0));
+    addAndMakeVisible (sourceExpandBtn_);
+    addAndMakeVisible (sourceCombo_);
+    sourceHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    sourceHeaderLabel_.setFont (juce::FontOptions (14.0f));
+    sourceHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
+    sourceHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 6, 0, 0));
+    juce::Label* sourceRowLabels[] = {
+        &inDriverLbl_, &inDeviceLbl_, &inChannelLbl_, &inRateLbl_, &inLevelLbl_, &inGainLbl_,
+        &mtcInLbl_, &artInLbl_, &artInListenIpLbl_, &oscAdapterLbl_, &oscIpLbl_, &oscPortLbl_, &oscFpsLbl_, &oscStrLbl_, &oscFloatLbl_
     };
+    for (auto* l : sourceRowLabels)
+    {
+        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
+        l->setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (*l);
+    }
 
-    oscAdapterCombo_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
-    oscAdapterCombo_.addItem ("Loopback (127.0.0.1)", 2);
-    oscAdapterCombo_.setSelectedId (1, juce::dontSendNotification);
+    ltcInDriverCombo_.addItem ("Default (all devices)", 1);
+    ltcInDriverCombo_.setSelectedId (1, juce::dontSendNotification);
+    styleCombo (ltcInDriverCombo_);
+    styleCombo (ltcInDeviceCombo_);
+    styleCombo (ltcInChannelCombo_);
+    styleCombo (ltcInSampleRateCombo_);
+    styleCombo (mtcInCombo_);
+    styleCombo (artnetInCombo_);
+    styleCombo (oscAdapterCombo_);
+    styleCombo (oscFpsCombo_);
+    addAndMakeVisible (ltcInDriverCombo_);
+
+    fillChannelCombo (ltcInChannelCombo_);
+    fillRateCombo (ltcInSampleRateCombo_);
+
+    oscPortEditor_.setText ("9000");
     oscIpEditor_.setText ("0.0.0.0");
+    oscPortEditor_.setInputRestrictions (5, "0123456789");
+    oscAddrStrEditor_.setText ("/frames/str");
+    oscAddrFloatEditor_.setText ("/time");
+    styleEditor (oscIpEditor_);
+    styleEditor (oscPortEditor_);
+    styleEditor (oscAddrStrEditor_);
+    styleEditor (oscAddrFloatEditor_);
+    styleEditor (artnetListenIpEditor_);
+    artnetListenIpEditor_.setText ("0.0.0.0");
+
     oscFpsCombo_.addItem ("24", 1);
     oscFpsCombo_.addItem ("25", 2);
     oscFpsCombo_.addItem ("29.97", 3);
     oscFpsCombo_.addItem ("30", 4);
     oscFpsCombo_.setSelectedId (2, juce::dontSendNotification);
-    oscCmdStrEditor_.setText ("/frames/str");
-    oscCmdFloatEditor_.setText ("/time");
 
-    oscPortEditor_.setText ("9000");
-    oscPortEditor_.setInputRestrictions (5, "0123456789");
-    oscPortEditor_.onTextChange = [this] { if (sourceCombo_.getSelectedId() == 4) startInput(); };
-    oscCmdStrEditor_.onTextChange = [this] { if (sourceCombo_.getSelectedId() == 4) startInput(); };
-    oscCmdFloatEditor_.onTextChange = [this] { if (sourceCombo_.getSelectedId() == 4) startInput(); };
+    setupDbSlider (ltcInGainSlider_);
+    ltcInLevelBar_.setMeterColour (juce::Colour::fromRGB (0x3d, 0x80, 0x70));
+    styleSlider (ltcInGainSlider_, true);
 
-    ltcOutSwitch_.onToggle = [this] (bool) { applyLtcOutput(); };
-    ltcThruDot_.setState (false);
-
-    ltcOutDriverCombo_.addItem ("Default (all devices)", 1);
-    ltcOutDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutDriverCombo_.onChange = [this] { refreshLtcOutDevices(); applyLtcOutput(); };
-    ltcOutDeviceCombo_.onChange = [this] { applyLtcOutput(); };
-    ltcOutChannelCombo_.onChange = [this] { applyLtcOutput(); };
-    ltcOutRateCombo_.addItem ("Default", 1);
-    ltcOutRateCombo_.addItem ("44100", 2);
-    ltcOutRateCombo_.addItem ("48000", 3);
-    ltcOutRateCombo_.addItem ("88200", 4);
-    ltcOutRateCombo_.addItem ("96000", 5);
-    ltcOutRateCombo_.addItem ("176400", 6);
-    ltcOutRateCombo_.addItem ("192000", 7);
-    ltcOutRateCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutRateCombo_.onChange = [this] { applyLtcOutput(); };
-    ltcOutOffsetEditor_.setText ("0");
-    ltcOutOffsetEditor_.setInputRestrictions (4, "-0123456789");
-    ltcOutLevelSlider_.setSliderStyle (juce::Slider::LinearHorizontal);
-    ltcOutLevelSlider_.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
-    ltcOutLevelSlider_.setRange (-24.0, 24.0, 0.1);
-    ltcOutLevelSlider_.setValue (0.0);
-    ltcOutLevelSlider_.onValueChange = [this]
+    for (auto* c : { &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &oscAdapterCombo_, &mtcInCombo_, &artnetInCombo_, &oscFpsCombo_ })
     {
-        bridgeEngine_.setLtcOutputGain ((float) std::pow (10.0, ltcOutLevelSlider_.getValue() / 20.0));
+        addAndMakeVisible (*c);
+        c->onChange = [this] { onInputSettingsChanged(); };
+    }
+    artnetListenIpEditor_.onTextChange = [this] { onInputSettingsChanged(); };
+
+    ltcInDriverCombo_.onChange = [this]
+    {
+        refreshLtcDeviceListsByDriver();
     };
+    oscAdapterCombo_.onChange = [this]
+    {
+        syncOscIpWithAdapter();
+        onInputSettingsChanged();
+    };
+
+    sourceCombo_.onChange = [this]
+    {
+        restartSelectedSource();
+        updateWindowHeight();
+        resized();
+        repaint();
+    };
+
+    addAndMakeVisible (ltcInGainSlider_);
+    addAndMakeVisible (ltcInLevelBar_);
+    addAndMakeVisible (oscIpEditor_);
+    addAndMakeVisible (oscPortEditor_);
+    addAndMakeVisible (oscAddrStrEditor_);
+    addAndMakeVisible (oscAddrFloatEditor_);
+    addAndMakeVisible (artnetListenIpEditor_);
 
     resolumeSendIp_.setText ("127.0.0.1");
     resolumeSendPort_.setText ("7000");
@@ -524,12 +562,9 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeMaxLayers_.setText ("12");
     resolumeMaxClips_.setText ("32");
     getTriggersBtn_.onClick = [this] { queryResolume(); };
-    sourceExpandBtn_.setExpanded (true);
     resolumeExpandBtn_.setExpanded (false);
-    ltcOutExpandBtn_.setExpanded (false);
-    sourceExpandBtn_.onClick = [this] { sourceExpanded_ = ! sourceExpanded_; sourceExpandBtn_.setExpanded (sourceExpanded_); resized(); repaint(); };
-    resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); resized(); repaint(); };
-    ltcOutExpandBtn_.onClick = [this] { ltcOutExpanded_ = ! ltcOutExpanded_; ltcOutExpandBtn_.setExpanded (ltcOutExpanded_); resized(); repaint(); };
+    helpButton_.onClick = [this] { openHelpPage(); };
+    resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); updateWindowHeight(); resized(); repaint(); };
 
     triggerTable_.setModel (this);
     triggerTable_.setRowHeight (36);
@@ -564,66 +599,18 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (easyLabel_);
     addAndMakeVisible (triggerLabel_);
     addAndMakeVisible (versionLabel_);
+    addAndMakeVisible (helpButton_);
     addAndMakeVisible (tcLabel_);
     addAndMakeVisible (fpsLabel_);
     addAndMakeVisible (statusLabel_);
-    addAndMakeVisible (sourceHeader_);
     addAndMakeVisible (resolumeHeader_);
-    addAndMakeVisible (ltcOutHeader_);
-    addAndMakeVisible (sourceExpandBtn_);
     addAndMakeVisible (resolumeExpandBtn_);
-    addAndMakeVisible (ltcOutExpandBtn_);
-    addAndMakeVisible (sourceLbl_);
-    addAndMakeVisible (sourceDriverLbl_);
-    addAndMakeVisible (sourceDeviceLbl_);
-    addAndMakeVisible (sourceChannelLbl_);
-    addAndMakeVisible (sourceRateLbl_);
-    addAndMakeVisible (sourceLevelLbl_);
-    addAndMakeVisible (sourceGainLbl_);
-    addAndMakeVisible (sourceMtcLbl_);
-    addAndMakeVisible (sourceArtLbl_);
-    addAndMakeVisible (oscPortLbl_);
-    addAndMakeVisible (oscAdapterLbl_);
-    addAndMakeVisible (oscIpLbl_);
-    addAndMakeVisible (oscFpsLbl_);
-    addAndMakeVisible (oscCmdStrLbl_);
-    addAndMakeVisible (oscCmdFloatLbl_);
-    addAndMakeVisible (ltcOutDriverLbl_);
-    addAndMakeVisible (ltcOutDeviceLbl_);
-    addAndMakeVisible (ltcOutChannelLbl_);
-    addAndMakeVisible (ltcOutRateLbl_);
-    addAndMakeVisible (ltcOutOffsetLbl_);
-    addAndMakeVisible (ltcOutLevelLbl_);
-    addAndMakeVisible (ltcThruLbl_);
     addAndMakeVisible (resSendIpLbl_);
     addAndMakeVisible (resSendPortLbl_);
     addAndMakeVisible (resListenIpLbl_);
     addAndMakeVisible (resListenPortLbl_);
     addAndMakeVisible (resMaxLayersLbl_);
     addAndMakeVisible (resMaxClipsLbl_);
-    addAndMakeVisible (sourceCombo_);
-    addAndMakeVisible (sourceDriverCombo_);
-    addAndMakeVisible (sourceDeviceCombo_);
-    addAndMakeVisible (sourceChannelCombo_);
-    addAndMakeVisible (sourceRateCombo_);
-    addAndMakeVisible (sourceLevelMeter_);
-    addAndMakeVisible (sourceGainSlider_);
-    addAndMakeVisible (sourceMtcCombo_);
-    addAndMakeVisible (sourceArtCombo_);
-    addAndMakeVisible (oscAdapterCombo_);
-    addAndMakeVisible (oscIpEditor_);
-    addAndMakeVisible (oscPortEditor_);
-    addAndMakeVisible (oscFpsCombo_);
-    addAndMakeVisible (oscCmdStrEditor_);
-    addAndMakeVisible (oscCmdFloatEditor_);
-    addAndMakeVisible (ltcOutSwitch_);
-    addAndMakeVisible (ltcThruDot_);
-    addAndMakeVisible (ltcOutDriverCombo_);
-    addAndMakeVisible (ltcOutDeviceCombo_);
-    addAndMakeVisible (ltcOutChannelCombo_);
-    addAndMakeVisible (ltcOutRateCombo_);
-    addAndMakeVisible (ltcOutOffsetEditor_);
-    addAndMakeVisible (ltcOutLevelSlider_);
     addAndMakeVisible (resolumeSendIp_);
     addAndMakeVisible (resolumeSendPort_);
     addAndMakeVisible (resolumeListenIp_);
@@ -633,8 +620,11 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (getTriggersBtn_);
     addAndMakeVisible (triggerTable_);
 
+    setSize (1240, 820);
+    resized();
+    statusLabel_.setText ("SAFE START", juce::dontSendNotification);
     startAudioDeviceScan();
-    startTimerHz (30);
+    startTimerHz (60);
 }
 
 TriggerContentComponent::~TriggerContentComponent()
@@ -642,6 +632,62 @@ TriggerContentComponent::~TriggerContentComponent()
     if (scanThread_ != nullptr && scanThread_->isThreadRunning())
         scanThread_->stopThread (2000);
     clipCollector_.stopListening();
+    setLookAndFeel (nullptr);
+}
+
+int TriggerContentComponent::calcPreferredHeight() const
+{
+    return calcHeightForState (sourceExpanded_, sourceCombo_.getSelectedId(), resolumeExpanded_);
+}
+
+int TriggerContentComponent::calcHeightForState (bool sourceExpanded, int sourceId, bool resolumeExpanded) const
+{
+    int h = 16;
+    h += 40 + 4;
+    h += 90;
+    h += 22 + 4;
+
+    auto addRows = [&h] (int count)
+    {
+        h += count * (40 + 4);
+    };
+
+    addRows (1);
+    if (sourceExpanded)
+    {
+        if (sourceId == 1) addRows (6);
+        else if (sourceId == 2) addRows (1);
+        else if (sourceId == 3) addRows (2);
+        else if (sourceId == 4) addRows (6);
+    }
+
+    addRows (1);
+    if (resolumeExpanded)
+        addRows (6);
+
+    h += 40 + 4;
+    h += 24 + 4;
+    h += 8;
+    return juce::jlimit (420, 1400, h);
+}
+
+void TriggerContentComponent::updateWindowHeight()
+{
+    if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+    {
+        if (window->isMinimised())
+            return;
+
+        auto* content = window->getContentComponent();
+        const int chrome = content != nullptr ? (window->getHeight() - content->getHeight()) : 0;
+        const int minContent = calcPreferredHeight();
+        const int minTotal = minContent + chrome;
+
+        window->setResizeLimits (980, minTotal, 1800, 1400);
+
+        if (window->getHeight() < minTotal)
+            window->setSize (window->getWidth(), minTotal);
+    }
 }
 
 void TriggerContentComponent::paint (juce::Graphics& g)
@@ -649,10 +695,17 @@ void TriggerContentComponent::paint (juce::Graphics& g)
     g.fillAll (bg_);
     if (! headerRect_.isEmpty())
     {
-        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x32));
+        g.setColour (juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
         g.fillRoundedRectangle (headerRect_.toFloat(), 5.0f);
         g.setColour (juce::Colour::fromRGB (0x3c, 0x3e, 0x42));
         g.drawRoundedRectangle (headerRect_.toFloat(), 5.0f, 1.0f);
+    }
+    if (! timerRect_.isEmpty())
+    {
+        g.setColour (juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
+        g.fillRoundedRectangle (timerRect_.toFloat(), 5.0f);
+        g.setColour (juce::Colour::fromRGB (0x33, 0x33, 0x33));
+        g.drawRoundedRectangle (timerRect_.toFloat(), 5.0f, 1.0f);
     }
     g.setColour (juce::Colour::fromRGB (0x65, 0x65, 0x65));
     for (auto r : sectionRowRects_)
@@ -663,6 +716,15 @@ void TriggerContentComponent::paint (juce::Graphics& g)
     g.setColour (bg_);
     for (auto r : rightSectionRects_)
         g.fillRoundedRectangle (r.toFloat(), 6.0f);
+
+    if (! statusBarRect_.isEmpty())
+    {
+        g.setColour (row_);
+        g.fillRect (statusBarRect_);
+        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
+        g.drawLine ((float) statusBarRect_.getX(), (float) statusBarRect_.getY(),
+                    (float) statusBarRect_.getRight(), (float) statusBarRect_.getY(), 1.0f);
+    }
 }
 
 void TriggerContentComponent::resized()
@@ -671,28 +733,33 @@ void TriggerContentComponent::resized()
     sectionRowRects_.clear();
     rightSectionRects_.clear();
     headerRect_ = {};
-
-    auto content = getLocalBounds().reduced (8);
+    timerRect_ = {};
+    auto bounds = getLocalBounds();
+    statusBarRect_ = bounds.removeFromBottom (24);
+    auto content = bounds.reduced (8);
     const int totalW = content.getWidth();
     int leftW = juce::jlimit (330, 390, (int) std::round ((double) totalW * 0.40));
     if (totalW - leftW < 420)
         leftW = juce::jmax (300, totalW - 420);
     auto left = content.removeFromLeft (leftW);
     auto right = content.reduced (6, 0);
-    auto statusArea = left.removeFromBottom (24);
-    left.removeFromBottom (4);
 
     headerRect_ = left.removeFromTop (40);
-    auto top = headerRect_.reduced (8, 0);
-    versionLabel_.setBounds (top.removeFromRight (70));
-    const int easyW = juce::jmax (46, easyLabel_.getFont().getStringWidth ("EASY") + 6);
+    auto top = headerRect_.reduced (6, 0);
+    auto help = top.removeFromRight (28);
+    helpButton_.setBounds (help.withSizeKeepingCentre (28, 28));
+    const int easyW = juce::jmax (46, easyLabel_.getFont().getStringWidth ("EASY ") + 6);
     const int trigW = juce::jmax (90, triggerLabel_.getFont().getStringWidth ("TRIGGER") + 6);
+    const int versionW = juce::jmax (58, versionLabel_.getFont().getStringWidth (versionLabel_.getText()) + 4);
     const int startX = top.getX() + 2;
-    const int yOff = 3;
-    easyLabel_.setBounds (startX, top.getY() + yOff, easyW, top.getHeight() - yOff);
-    triggerLabel_.setBounds (startX + easyW, top.getY() + yOff, trigW, top.getHeight() - yOff);
+    const int yOff = 6;
+    const int titleH = juce::jmax (1, top.getHeight() - yOff);
+    easyLabel_.setBounds (startX, top.getY() + yOff, easyW, titleH);
+    triggerLabel_.setBounds (startX + easyW, top.getY() + yOff, trigW, titleH);
+    versionLabel_.setBounds (startX + easyW + trigW + 2, top.getY() + yOff, versionW, titleH);
     left.removeFromTop (4);
-    tcLabel_.setBounds (left.removeFromTop (108));
+    timerRect_ = left.removeFromTop (90);
+    tcLabel_.setBounds (timerRect_);
     fpsLabel_.setBounds (left.removeFromTop (22));
     left.removeFromTop (4);
 
@@ -709,11 +776,6 @@ void TriggerContentComponent::resized()
         auto l = r.removeFromLeft (112);
         lbl.setBounds (l.reduced (10, 0));
         auto control = r.reduced (0, 3).reduced (2, 0);
-        if (&c == &sourceLevelMeter_)
-        {
-            const int hMeter = 8;
-            control = juce::Rectangle<int> (control.getX(), control.getCentreY() - hMeter / 2, control.getWidth(), hMeter);
-        }
         c.setBounds (control);
     };
 
@@ -729,47 +791,56 @@ void TriggerContentComponent::resized()
         lbl.setBounds (r.reduced (6, 0));
     };
 
+    auto sourceRow = row();
+    if (leftRowRects_.size() > 0)
+        leftRowRects_.remove (leftRowRects_.size() - 1);
+    sectionRowRects_.add (sourceRow);
+    auto sourceLabelZone = sourceRow.removeFromLeft (112);
     {
-        auto r = row();
-        if (leftRowRects_.size() > 0)
-            leftRowRects_.remove (leftRowRects_.size() - 1);
-        sectionRowRects_.add (r);
-        auto bh = r.removeFromLeft (36);
+        auto btnHost = sourceLabelZone.removeFromLeft (36);
         const int d = 28;
-        sourceExpandBtn_.setBounds (bh.getX() + 3 + (bh.getWidth() - d) / 2, bh.getY() + (bh.getHeight() - d) / 2, d, d);
-        auto labelArea = r.removeFromLeft (112);
-        sourceHeader_.setBounds (labelArea);
-        sourceCombo_.setBounds (r.reduced (2, 3));
+        sourceExpandBtn_.setBounds (
+            btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
+            btnHost.getY() + (btnHost.getHeight() - d) / 2,
+            d, d);
     }
-    if (sourceExpanded_)
+    sourceHeaderLabel_.setBounds (sourceLabelZone);
+    sourceCombo_.setBounds (sourceRow.reduced (2, 3));
+    sourceHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    sourceExpandBtn_.setExpanded (sourceExpanded_);
+
+    const auto src = sourceCombo_.getSelectedId();
+    if (sourceExpanded_ && src == 1)
     {
-        const int src = sourceCombo_.getSelectedId();
-        if (src == 1)
-        {
-            layoutParam (sourceDriverLbl_, sourceDriverCombo_);
-            layoutParam (sourceDeviceLbl_, sourceDeviceCombo_);
-            layoutParam (sourceChannelLbl_, sourceChannelCombo_);
-            layoutParam (sourceRateLbl_, sourceRateCombo_);
-            layoutParam (sourceLevelLbl_, sourceLevelMeter_);
-            layoutParam (sourceGainLbl_, sourceGainSlider_);
-        }
-        else if (src == 2)
-        {
-            layoutParam (sourceMtcLbl_, sourceMtcCombo_);
-        }
-        else if (src == 3)
-        {
-            layoutParam (sourceArtLbl_, sourceArtCombo_);
-        }
-        else
-        {
-            layoutParam (oscAdapterLbl_, oscAdapterCombo_);
-            layoutParam (oscIpLbl_, oscIpEditor_);
-            layoutParam (oscPortLbl_, oscPortEditor_);
-            layoutParam (oscFpsLbl_, oscFpsCombo_);
-            layoutParam (oscCmdStrLbl_, oscCmdStrEditor_);
-            layoutParam (oscCmdFloatLbl_, oscCmdFloatEditor_);
-        }
+        layoutParam (inDriverLbl_, ltcInDriverCombo_);
+        layoutParam (inDeviceLbl_, ltcInDeviceCombo_);
+        layoutParam (inChannelLbl_, ltcInChannelCombo_);
+        layoutParam (inRateLbl_, ltcInSampleRateCombo_);
+        auto meterRow = row();
+        auto meterLabelArea = meterRow.removeFromLeft (112);
+        inLevelLbl_.setBounds (meterLabelArea.reduced (10, 0));
+        auto meterControl = meterRow.reduced (0, 3).reduced (2, 0).reduced (6, 0);
+        const int meterH = 8;
+        ltcInLevelBar_.setBounds (juce::Rectangle<int> (meterControl.getX(), meterControl.getCentreY() - meterH / 2, meterControl.getWidth(), meterH));
+        layoutParam (inGainLbl_, ltcInGainSlider_);
+    }
+    else if (sourceExpanded_ && src == 2)
+    {
+        layoutParam (mtcInLbl_, mtcInCombo_);
+    }
+    else if (sourceExpanded_ && src == 3)
+    {
+        layoutParam (artInLbl_, artnetInCombo_);
+        layoutParam (artInListenIpLbl_, artnetListenIpEditor_);
+    }
+    else if (sourceExpanded_)
+    {
+        layoutParam (oscAdapterLbl_, oscAdapterCombo_);
+        layoutParam (oscIpLbl_, oscIpEditor_);
+        layoutParam (oscPortLbl_, oscPortEditor_);
+        layoutParam (oscFpsLbl_, oscFpsCombo_);
+        layoutParam (oscStrLbl_, oscAddrStrEditor_);
+        layoutParam (oscFloatLbl_, oscAddrFloatEditor_);
     }
 
     headerRow (resolumeHeader_, resolumeExpandBtn_);
@@ -783,46 +854,35 @@ void TriggerContentComponent::resized()
         layoutParam (resMaxClipsLbl_, resolumeMaxClips_);
     }
 
-    headerRow (ltcOutHeader_, ltcOutExpandBtn_);
+    auto hideAll = [this]
     {
-        auto hdr = sectionRowRects_.getReference (sectionRowRects_.size() - 1);
-        auto r = hdr;
-        r.removeFromLeft (36 + 112);
-        ltcOutSwitch_.setBounds (r.removeFromRight (54).reduced (0, 6));
-        auto dotHost = r.removeFromRight (22);
-        const int d = 18;
-        ltcThruDot_.setBounds (dotHost.getCentreX() - d / 2, dotHost.getCentreY() - d / 2, d, d);
-        ltcThruLbl_.setBounds (r.removeFromRight (42));
-    }
-    if (ltcOutExpanded_)
-    {
-        layoutParam (ltcOutDriverLbl_, ltcOutDriverCombo_);
-        layoutParam (ltcOutDeviceLbl_, ltcOutDeviceCombo_);
-        layoutParam (ltcOutChannelLbl_, ltcOutChannelCombo_);
-        layoutParam (ltcOutRateLbl_, ltcOutRateCombo_);
-        layoutParam (ltcOutOffsetLbl_, ltcOutOffsetEditor_);
-        layoutParam (ltcOutLevelLbl_, ltcOutLevelSlider_);
-    }
-
-    const int src = sourceCombo_.getSelectedId();
-    sourceLbl_.setVisible (false);
-    sourceCombo_.setVisible (true);
-    sourceDriverLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceDriverCombo_.setVisible (sourceExpanded_ && src == 1);
-    sourceDeviceLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceDeviceCombo_.setVisible (sourceExpanded_ && src == 1);
-    sourceChannelLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceChannelCombo_.setVisible (sourceExpanded_ && src == 1);
-    sourceRateLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceRateCombo_.setVisible (sourceExpanded_ && src == 1);
-    sourceLevelLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceLevelMeter_.setVisible (sourceExpanded_ && src == 1);
-    sourceGainLbl_.setVisible (sourceExpanded_ && src == 1);
-    sourceGainSlider_.setVisible (sourceExpanded_ && src == 1);
-    sourceMtcLbl_.setVisible (sourceExpanded_ && src == 2);
-    sourceMtcCombo_.setVisible (sourceExpanded_ && src == 2);
-    sourceArtLbl_.setVisible (sourceExpanded_ && src == 3);
-    sourceArtCombo_.setVisible (sourceExpanded_ && src == 3);
+        juce::Component* comps[] = {
+            &ltcInDriverCombo_, &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &ltcInLevelBar_, &ltcInGainSlider_,
+            &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_
+        };
+        for (auto* c : comps)
+            if (c != nullptr)
+                c->setVisible (false);
+    };
+    hideAll();
+    inDriverLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInDriverCombo_.setVisible (sourceExpanded_ && src == 1);
+    inDeviceLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInDeviceCombo_.setVisible (sourceExpanded_ && src == 1);
+    inChannelLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInChannelCombo_.setVisible (sourceExpanded_ && src == 1);
+    inRateLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInSampleRateCombo_.setVisible (sourceExpanded_ && src == 1);
+    inLevelLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInLevelBar_.setVisible (sourceExpanded_ && src == 1);
+    inGainLbl_.setVisible (sourceExpanded_ && src == 1);
+    ltcInGainSlider_.setVisible (sourceExpanded_ && src == 1);
+    mtcInLbl_.setVisible (sourceExpanded_ && src == 2);
+    mtcInCombo_.setVisible (sourceExpanded_ && src == 2);
+    artInLbl_.setVisible (sourceExpanded_ && src == 3);
+    artnetInCombo_.setVisible (sourceExpanded_ && src == 3);
+    artInListenIpLbl_.setVisible (sourceExpanded_ && src == 3);
+    artnetListenIpEditor_.setVisible (sourceExpanded_ && src == 3);
     oscAdapterLbl_.setVisible (sourceExpanded_ && src == 4);
     oscAdapterCombo_.setVisible (sourceExpanded_ && src == 4);
     oscIpLbl_.setVisible (sourceExpanded_ && src == 4);
@@ -831,10 +891,10 @@ void TriggerContentComponent::resized()
     oscPortEditor_.setVisible (sourceExpanded_ && src == 4);
     oscFpsLbl_.setVisible (sourceExpanded_ && src == 4);
     oscFpsCombo_.setVisible (sourceExpanded_ && src == 4);
-    oscCmdStrLbl_.setVisible (sourceExpanded_ && src == 4);
-    oscCmdStrEditor_.setVisible (sourceExpanded_ && src == 4);
-    oscCmdFloatLbl_.setVisible (sourceExpanded_ && src == 4);
-    oscCmdFloatEditor_.setVisible (sourceExpanded_ && src == 4);
+    oscStrLbl_.setVisible (sourceExpanded_ && src == 4);
+    oscAddrStrEditor_.setVisible (sourceExpanded_ && src == 4);
+    oscFloatLbl_.setVisible (sourceExpanded_ && src == 4);
+    oscAddrFloatEditor_.setVisible (sourceExpanded_ && src == 4);
 
     resSendIpLbl_.setVisible (resolumeExpanded_);
     resSendPortLbl_.setVisible (resolumeExpanded_);
@@ -849,27 +909,19 @@ void TriggerContentComponent::resized()
     resolumeMaxLayers_.setVisible (resolumeExpanded_);
     resolumeMaxClips_.setVisible (resolumeExpanded_);
 
-    ltcOutSwitch_.setVisible (true);
-    ltcThruDot_.setVisible (true);
-    ltcThruLbl_.setVisible (true);
-    ltcOutDriverLbl_.setVisible (ltcOutExpanded_);
-    ltcOutDeviceLbl_.setVisible (ltcOutExpanded_);
-    ltcOutChannelLbl_.setVisible (ltcOutExpanded_);
-    ltcOutRateLbl_.setVisible (ltcOutExpanded_);
-    ltcOutOffsetLbl_.setVisible (ltcOutExpanded_);
-    ltcOutLevelLbl_.setVisible (ltcOutExpanded_);
-    ltcOutDriverCombo_.setVisible (ltcOutExpanded_);
-    ltcOutDeviceCombo_.setVisible (ltcOutExpanded_);
-    ltcOutChannelCombo_.setVisible (ltcOutExpanded_);
-    ltcOutRateCombo_.setVisible (ltcOutExpanded_);
-    ltcOutOffsetEditor_.setVisible (ltcOutExpanded_);
-    ltcOutLevelSlider_.setVisible (ltcOutExpanded_);
-
     auto getTriggersRow = left.removeFromBottom (40);
-    getTriggersBtn_.setBounds (getTriggersRow.reduced (8, 3));
+    if (! left.isEmpty())
+        rightSectionRects_.add (left);
+
+    auto buttonBounds = getTriggersRow.reduced (8, 3);
+    if (buttonBounds.getHeight() < 34)
+        buttonBounds = getTriggersRow.withTrimmedLeft (8).withTrimmedRight (8)
+                                      .withSizeKeepingCentre (juce::jmax (40, getTriggersRow.getWidth() - 16), 34);
+
+    getTriggersBtn_.setBounds (buttonBounds);
     getTriggersBtn_.setVisible (true);
 
-    statusLabel_.setBounds (statusArea.reduced (0, 2));
+    statusLabel_.setBounds (statusBarRect_);
 
     rightSectionRects_.add (right);
     triggerTable_.setBounds (right.reduced (3));
@@ -951,6 +1003,7 @@ void TriggerContentComponent::updateTableColumnWidths()
 
 void TriggerContentComponent::timerCallback()
 {
+    bridgeEngine_.setLtcInputGain (dbToLinearGain (ltcInGainSlider_.getValue()));
     const auto st = bridgeEngine_.tick();
     hasLiveInputTc_ = st.hasInputTc;
     if (st.hasInputTc)
@@ -959,19 +1012,33 @@ void TriggerContentComponent::timerCallback()
         liveInputFps_ = st.inputFps;
     }
     const float peak = bridgeEngine_.getLtcInputPeakLevel();
-    sourceLevelSmoothed_ = (sourceLevelSmoothed_ * 0.76f) + (peak * 0.24f);
-    sourceLevelMeter_.setLevel (sourceLevelSmoothed_);
+    ltcInLevelSmoothed_ = (peak > ltcInLevelSmoothed_) ? peak : (ltcInLevelSmoothed_ * 0.85f);
+    ltcInLevelBar_.setLevel (ltcInLevelSmoothed_);
     updateClipCountdowns();
     if (st.hasInputTc)
     {
+        hasLatchedTc_ = true;
+        latchedTc_ = st.inputTc;
+        latchedFps_ = st.inputFps;
         tcLabel_.setText (st.inputTc.toDisplayString (st.inputFps).replaceCharacter ('.', ':'), juce::dontSendNotification);
         fpsLabel_.setText ("TC FPS: " + frameRateToString (st.inputFps), juce::dontSendNotification);
     }
+    else
+    {
+        if (hasLatchedTc_)
+        {
+            tcLabel_.setText (latchedTc_.toDisplayString (latchedFps_).replaceCharacter ('.', ':'), juce::dontSendNotification);
+            fpsLabel_.setText ("TC FPS: " + frameRateToString (latchedFps_), juce::dontSendNotification);
+        }
+        else
+        {
+            tcLabel_.setText ("00:00:00:00", juce::dontSendNotification);
+            fpsLabel_.setText ("TC FPS: --", juce::dontSendNotification);
+        }
+    }
     evaluateAndFireTriggers();
     const int rxCount = (int) clipCollector_.snapshot().size();
-    statusLabel_.setText ("SRC " + inputSourceName (sourceCombo_.getSelectedId())
-                          + " | LTC OUT " + (ltcOutSwitch_.getState() ? "ON" : "OFF")
-                          + " | RX clips: " + juce::String (rxCount),
+    statusLabel_.setText ((st.hasInputTc ? "RUNNING" : "STOPPED - no timecode") + juce::String (" | RX clips: ") + juce::String (rxCount),
                           juce::dontSendNotification);
 }
 
@@ -1308,10 +1375,10 @@ void TriggerContentComponent::loadFonts()
     if (! fontsDir.exists())
     {
         auto cwd = juce::File::getCurrentWorkingDirectory();
+        auto project = cwd.getChildFile ("EASYTRIGGER-JYCE").getChildFile ("Fonts");
         auto local = cwd.getChildFile ("EasyTrigger").getChildFile ("Fonts");
-        auto bridge = cwd.getChildFile ("MTC_Bridge").getChildFile ("Fonts");
-        if (local.exists()) fontsDir = local;
-        else if (bridge.exists()) fontsDir = bridge;
+        if (project.exists()) fontsDir = project;
+        else if (local.exists()) fontsDir = local;
     }
 
     headerBold_ = loadFont (fontsDir.getChildFile ("Thunder-SemiBoldLC.ttf"));
@@ -1324,55 +1391,46 @@ void TriggerContentComponent::loadFonts()
 
 void TriggerContentComponent::applyTheme()
 {
-    auto styleCombo = [this] (juce::ComboBox& c)
+    lookAndFeel_ = std::make_unique<BridgeLookAndFeel>();
+    lookAndFeel_->setColour (juce::ComboBox::backgroundColourId, input_);
+    lookAndFeel_->setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (210, 220, 230));
+    lookAndFeel_->setColour (juce::ComboBox::outlineColourId, row_);
+    lookAndFeel_->setColour (juce::ComboBox::arrowColourId, juce::Colour::fromRGB (0x9a, 0xa1, 0xac));
+    lookAndFeel_->setColour (juce::PopupMenu::backgroundColourId, input_);
+    lookAndFeel_->setColour (juce::PopupMenu::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    lookAndFeel_->setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
+    lookAndFeel_->setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    lookAndFeel_->setColour (juce::PopupMenu::headerTextColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    lookAndFeel_->setColour (juce::TextEditor::backgroundColourId, input_);
+    lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (210, 220, 230));
+    lookAndFeel_->setColour (juce::TextEditor::outlineColourId, row_);
+    setLookAndFeel (lookAndFeel_.get());
+
+    auto styleEditor = [this] (juce::TextEditor& e)
     {
-        c.setColour (juce::ComboBox::backgroundColourId, input_);
-        c.setColour (juce::ComboBox::outlineColourId, row_);
-        c.setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
-        c.setColour (juce::ComboBox::arrowColourId, juce::Colour::fromRGB (0x9a, 0xa1, 0xac));
+        e.setColour (juce::TextEditor::backgroundColourId, input_);
+        e.setColour (juce::TextEditor::outlineColourId, row_);
+        e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x6a, 0x6a, 0x6a));
+        e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        e.setJustification (juce::Justification::centredLeft);
+        e.setIndents (8, 0);
     };
-    for (auto* c : { &sourceCombo_, &sourceDriverCombo_, &sourceDeviceCombo_, &sourceChannelCombo_, &sourceRateCombo_,
-                     &sourceMtcCombo_, &sourceArtCombo_, &oscAdapterCombo_, &oscFpsCombo_,
-                     &ltcOutDriverCombo_, &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutRateCombo_ })
-        styleCombo (*c);
-    for (auto* e : { &oscIpEditor_, &oscPortEditor_, &oscCmdStrEditor_, &oscCmdFloatEditor_,
-                     &resolumeSendIp_, &resolumeSendPort_, &resolumeListenIp_, &resolumeListenPort_, &resolumeMaxLayers_, &resolumeMaxClips_,
-                     &ltcOutOffsetEditor_ })
+    for (auto* e : { &resolumeSendIp_, &resolumeSendPort_, &resolumeListenIp_, &resolumeListenPort_, &resolumeMaxLayers_, &resolumeMaxClips_ })
     {
-        e->setColour (juce::TextEditor::backgroundColourId, input_);
-        e->setColour (juce::TextEditor::outlineColourId, row_);
-        e->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        styleEditor (*e);
     }
-    for (auto* l : { &sourceHeader_, &resolumeHeader_, &ltcOutHeader_,
-                     &sourceLbl_, &sourceDriverLbl_, &sourceDeviceLbl_, &sourceChannelLbl_, &sourceRateLbl_, &sourceLevelLbl_, &sourceGainLbl_, &sourceMtcLbl_, &sourceArtLbl_,
-                     &oscAdapterLbl_, &oscIpLbl_, &oscPortLbl_, &oscFpsLbl_, &oscCmdStrLbl_, &oscCmdFloatLbl_,
-                     &ltcOutDriverLbl_, &ltcOutDeviceLbl_, &ltcOutChannelLbl_, &ltcOutRateLbl_, &ltcOutOffsetLbl_, &ltcOutLevelLbl_, &ltcThruLbl_,
+    for (auto* l : { &resolumeHeader_,
                      &resSendIpLbl_, &resSendPortLbl_, &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_ })
     {
         l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
         l->setJustificationType (juce::Justification::centredLeft);
     }
-    for (auto* h : { &sourceHeader_, &resolumeHeader_, &ltcOutHeader_ })
+    for (auto* h : { &resolumeHeader_ })
     {
         h->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
         h->setFont (juce::FontOptions (14.0f));
         h->setJustificationType (juce::Justification::centredLeft);
     }
-    ltcThruLbl_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xd0, 0xd0, 0xd0));
-    sourceGainSlider_.setSliderStyle (juce::Slider::LinearHorizontal);
-    sourceGainSlider_.setColour (juce::Slider::backgroundColourId, juce::Colour::fromRGB (0x20, 0x20, 0x20));
-    sourceGainSlider_.setColour (juce::Slider::trackColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
-    sourceGainSlider_.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-    sourceGainSlider_.setColour (juce::Slider::textBoxTextColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
-    sourceGainSlider_.setColour (juce::Slider::textBoxOutlineColourId, row_);
-    sourceGainSlider_.setColour (juce::Slider::textBoxBackgroundColourId, input_);
-    ltcOutLevelSlider_.setSliderStyle (juce::Slider::LinearHorizontal);
-    ltcOutLevelSlider_.setColour (juce::Slider::backgroundColourId, juce::Colour::fromRGB (0x20, 0x20, 0x20));
-    ltcOutLevelSlider_.setColour (juce::Slider::trackColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
-    ltcOutLevelSlider_.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-    ltcOutLevelSlider_.setColour (juce::Slider::textBoxTextColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
-    ltcOutLevelSlider_.setColour (juce::Slider::textBoxOutlineColourId, row_);
-    ltcOutLevelSlider_.setColour (juce::Slider::textBoxBackgroundColourId, input_);
     statusLabel_.setColour (juce::Label::backgroundColourId, row_);
     statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
     getTriggersBtn_.setColour (juce::TextButton::buttonColourId, row_);
@@ -1381,266 +1439,17 @@ void TriggerContentComponent::applyTheme()
     getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
 }
 
-void TriggerContentComponent::startAudioDeviceScan()
+void TriggerContentComponent::openHelpPage()
 {
-    if (scanThread_ != nullptr && scanThread_->isThreadRunning())
-    {
-        if (! scanThread_->stopThread (2000))
-            return;
-    }
-
-    scanThread_ = std::make_unique<AudioScanThread> (this);
-    scanThread_->startThread();
-}
-
-void TriggerContentComponent::onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
-                                                   const juce::Array<bridge::engine::AudioChoice>& outputs)
-{
-    allInputChoices_ = inputs;
-    allOutputChoices_ = outputs;
-    refreshInputsForSource();
-    refreshLtcOutDevices();
-    startInput();
-    applyLtcOutput();
-}
-
-void TriggerContentComponent::refreshInputsForSource()
-{
-    const auto prevInType = [&]() -> juce::String
-    {
-        const int id = sourceDeviceCombo_.getSelectedId();
-        const int idx = id > 0 ? id - 1 : -1;
-        if (juce::isPositiveAndBelow (idx, filteredInputIndices_.size()))
-        {
-            const int realIdx = filteredInputIndices_[idx];
-            if (juce::isPositiveAndBelow (realIdx, allInputChoices_.size()))
-                return allInputChoices_[realIdx].typeName;
-        }
-        return {};
-    }();
-    const auto prevInDevice = [&]() -> juce::String
-    {
-        const int id = sourceDeviceCombo_.getSelectedId();
-        const int idx = id > 0 ? id - 1 : -1;
-        if (juce::isPositiveAndBelow (idx, filteredInputIndices_.size()))
-        {
-            const int realIdx = filteredInputIndices_[idx];
-            if (juce::isPositiveAndBelow (realIdx, allInputChoices_.size()))
-                return allInputChoices_[realIdx].deviceName;
-        }
-        return {};
-    }();
-
-    sourceDeviceCombo_.clear();
-    sourceMtcCombo_.clear();
-    sourceArtCombo_.clear();
-
-    juce::StringArray names;
-    if (sourceCombo_.getSelectedId() == 1)
-    {
-        const auto prevDriver = sourceDriverCombo_.getText();
-        fillDriverCombo (sourceDriverCombo_, allInputChoices_, prevDriver);
-        sourceLtcChoices_ = filteredLtcInputs();
-        if (sourceLtcChoices_.isEmpty())
-        {
-            sourceDeviceCombo_.addItem ("(No audio devices)", kPlaceholderItemId);
-            sourceDeviceCombo_.setSelectedId (kPlaceholderItemId, juce::dontSendNotification);
-        }
-        else
-        {
-            for (const auto& c : sourceLtcChoices_) names.add (c.displayName);
-        }
-    }
-    else if (sourceCombo_.getSelectedId() == 2)
-        names = bridgeEngine_.midiInputs();
-    else if (sourceCombo_.getSelectedId() == 3)
-        names = bridgeEngine_.artnetInterfaces();
-    else
-        names.add ("OSC");
-
-    if (sourceCombo_.getSelectedId() == 1)
-    {
-        if (! sourceLtcChoices_.isEmpty())
-        {
-            for (int i = 0; i < names.size(); ++i)
-                sourceDeviceCombo_.addItem (names[i], i + 1);
-            sourceDeviceCombo_.setSelectedId (1, juce::dontSendNotification);
-            if (prevInDevice.isNotEmpty())
-            {
-                const int restoreIdx = findFilteredIndex (filteredInputIndices_, allInputChoices_, prevInType, prevInDevice);
-                if (restoreIdx >= 0)
-                    sourceDeviceCombo_.setSelectedId (restoreIdx + 1, juce::dontSendNotification);
-            }
-        }
-        sourceDeviceCombo_.onChange = [this] { startInput(); };
-    }
-    else if (sourceCombo_.getSelectedId() == 2)
-    {
-        for (int i = 0; i < names.size(); ++i)
-            sourceMtcCombo_.addItem (names[i], i + 1);
-        if (sourceMtcCombo_.getNumItems() > 0)
-            sourceMtcCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
-        sourceMtcCombo_.onChange = [this] { startInput(); };
-    }
-    else if (sourceCombo_.getSelectedId() == 3)
-    {
-        for (int i = 0; i < names.size(); ++i)
-            sourceArtCombo_.addItem (names[i], i + 1);
-        if (sourceArtCombo_.getNumItems() > 0)
-            sourceArtCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
-        sourceArtCombo_.onChange = [this] { startInput(); };
-    }
-}
-
-void TriggerContentComponent::refreshLtcOutDevices()
-{
-    const auto prevDriver = ltcOutDriverCombo_.getText();
-    const auto prevOutType = [&]() -> juce::String
-    {
-        const int id = ltcOutDeviceCombo_.getSelectedId();
-        const int idx = id > 0 ? id - 1 : -1;
-        if (juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
-        {
-            const int realIdx = filteredOutputIndices_[idx];
-            if (juce::isPositiveAndBelow (realIdx, allOutputChoices_.size()))
-                return allOutputChoices_[realIdx].typeName;
-        }
-        return {};
-    }();
-    const auto prevOutDevice = [&]() -> juce::String
-    {
-        const int id = ltcOutDeviceCombo_.getSelectedId();
-        const int idx = id > 0 ? id - 1 : -1;
-        if (juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
-        {
-            const int realIdx = filteredOutputIndices_[idx];
-            if (juce::isPositiveAndBelow (realIdx, allOutputChoices_.size()))
-                return allOutputChoices_[realIdx].deviceName;
-        }
-        return {};
-    }();
-
-    fillDriverCombo (ltcOutDriverCombo_, allOutputChoices_, prevDriver);
-    ltcOutChoices_.clear();
-    filteredOutputIndices_.clear();
-    for (int i = 0; i < allOutputChoices_.size(); ++i)
-    {
-        const auto& c = allOutputChoices_[i];
-        if (matchesDriverFilter (ltcOutDriverCombo_.getText(), c.typeName))
-        {
-            ltcOutChoices_.add (c);
-            filteredOutputIndices_.add (i);
-        }
-    }
-    ltcOutDeviceCombo_.clear();
-    if (ltcOutChoices_.isEmpty())
-    {
-        ltcOutDeviceCombo_.addItem ("(No audio devices)", kPlaceholderItemId);
-        ltcOutDeviceCombo_.setSelectedId (kPlaceholderItemId, juce::dontSendNotification);
-    }
-    else
-    {
-        for (int i = 0; i < ltcOutChoices_.size(); ++i)
-            ltcOutDeviceCombo_.addItem (ltcOutChoices_[i].displayName, i + 1);
-        ltcOutDeviceCombo_.setSelectedId (1, juce::dontSendNotification);
-
-        if (prevOutDevice.isNotEmpty())
-        {
-            const int restoreIdx = findFilteredIndex (filteredOutputIndices_, allOutputChoices_, prevOutType, prevOutDevice);
-            if (restoreIdx >= 0)
-                ltcOutDeviceCombo_.setSelectedId (restoreIdx + 1, juce::dontSendNotification);
-        }
-    }
-}
-
-void TriggerContentComponent::startInput()
-{
-    bridgeEngine_.stopLtcInput();
-    bridgeEngine_.stopMtcInput();
-    bridgeEngine_.stopArtnetInput();
-    bridgeEngine_.stopOscInput();
-
-    juce::String err;
-    const int src = sourceCombo_.getSelectedId();
-    if (src == 1)
-    {
-        bridgeEngine_.setInputSource (bridge::engine::InputSource::LTC);
-        sourceLtcChoices_ = filteredLtcInputs();
-        const int selectedId = sourceDeviceCombo_.getSelectedId();
-        const int idx = selectedId > 0 ? selectedId - 1 : -1;
-        double sr = 0.0;
-        switch (sourceRateCombo_.getSelectedId())
-        {
-            case 2: sr = 44100.0; break;
-            case 3: sr = 48000.0; break;
-            case 4: sr = 88200.0; break;
-            case 5: sr = 96000.0; break;
-            case 6: sr = 176400.0; break;
-            case 7: sr = 192000.0; break;
-            default: break;
-        }
-        if (juce::isPositiveAndBelow (idx, sourceLtcChoices_.size()))
-            bridgeEngine_.startLtcInput (sourceLtcChoices_[(size_t) idx],
-                                         juce::jmax (0, sourceChannelCombo_.getSelectedId() - 1),
-                                         sr,
-                                         0, err);
-    }
-    else if (src == 2)
-    {
-        bridgeEngine_.setInputSource (bridge::engine::InputSource::MTC);
-        bridgeEngine_.startMtcInput (sourceMtcCombo_.getSelectedItemIndex(), err);
-    }
-    else if (src == 3)
-    {
-        bridgeEngine_.setInputSource (bridge::engine::InputSource::ArtNet);
-        bridgeEngine_.startArtnetInput (sourceArtCombo_.getSelectedItemIndex(), err);
-    }
-    else
-    {
-        bridgeEngine_.setInputSource (bridge::engine::InputSource::OSC);
-        FrameRate fps = FrameRate::FPS_25;
-        if (oscFpsCombo_.getSelectedId() == 1) fps = FrameRate::FPS_24;
-        else if (oscFpsCombo_.getSelectedId() == 3) fps = FrameRate::FPS_2997;
-        else if (oscFpsCombo_.getSelectedId() == 4) fps = FrameRate::FPS_30;
-        const auto bindIp = oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim() : juce::String ("0.0.0.0");
-        const auto strCmd = oscCmdStrEditor_.getText().trim().isNotEmpty() ? oscCmdStrEditor_.getText().trim() : juce::String ("/frames/str");
-        const auto floatCmd = oscCmdFloatEditor_.getText().trim().isNotEmpty() ? oscCmdFloatEditor_.getText().trim() : juce::String ("/time");
-        bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()), bindIp, fps, strCmd, floatCmd, err);
-    }
-
-    if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
-}
-
-void TriggerContentComponent::applyLtcOutput()
-{
-    juce::String err;
-    if (! ltcOutSwitch_.getState())
-    {
-        bridgeEngine_.setLtcOutputEnabled (false);
+    auto base = findUiBaseDirFromExe();
+    if (! base.exists())
         return;
-    }
 
-    const int idx = ltcOutDeviceCombo_.getSelectedItemIndex();
-    if (juce::isPositiveAndBelow (idx, ltcOutChoices_.size()))
-    {
-        double sr = 0.0;
-        switch (ltcOutRateCombo_.getSelectedId())
-        {
-            case 2: sr = 44100.0; break;
-            case 3: sr = 48000.0; break;
-            case 4: sr = 88200.0; break;
-            case 5: sr = 96000.0; break;
-            case 6: sr = 176400.0; break;
-            case 7: sr = 192000.0; break;
-            default: break;
-        }
-        bridgeEngine_.startLtcOutput (ltcOutChoices_[idx], juce::jmax (0, ltcOutChannelCombo_.getSelectedId() - 1), sr, 0, err);
-        bridgeEngine_.setLtcOutputEnabled (true);
-    }
-    if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
+    auto help = base.getChildFile ("Help/easy_trigger_help.html");
+    if (help.existsAsFile())
+        juce::URL (help.getFullPathName()).launchInDefaultBrowser();
 }
+
 
 void TriggerContentComponent::refreshTriggerRows()
 {
@@ -1874,20 +1683,224 @@ void TriggerContentComponent::evaluateAndFireTriggers()
     triggerTable_.repaint();
 }
 
-juce::Array<bridge::engine::AudioChoice> TriggerContentComponent::filteredLtcInputs()
+void TriggerContentComponent::restartSelectedSource()
 {
-    juce::Array<bridge::engine::AudioChoice> filtered;
-    filteredInputIndices_.clear();
-    for (int i = 0; i < allInputChoices_.size(); ++i)
+    const int src = sourceCombo_.getSelectedId();
+    if (src == 1)
+        bridgeEngine_.setInputSource (bridge::engine::InputSource::LTC);
+    else if (src == 2)
+        bridgeEngine_.setInputSource (bridge::engine::InputSource::MTC);
+    else if (src == 3)
+        bridgeEngine_.setInputSource (bridge::engine::InputSource::ArtNet);
+    else
+        bridgeEngine_.setInputSource (bridge::engine::InputSource::OSC);
+}
+
+void TriggerContentComponent::onInputSettingsChanged()
+{
+    juce::String err;
+
+    const int ltcSelectedId = ltcInDeviceCombo_.getSelectedId();
+    const int ltcIdx = ltcSelectedId > 0 ? ltcSelectedId - 1 : -1;
+    if (juce::isPositiveAndBelow (ltcIdx, filteredInputIndices_.size()))
+        bridgeEngine_.startLtcInput (inputChoices_[filteredInputIndices_[ltcIdx]],
+                                     comboChannelIndex (ltcInChannelCombo_),
+                                     comboSampleRate (ltcInSampleRateCombo_),
+                                     0,
+                                     err);
+
+    if (mtcInCombo_.getNumItems() > 0)
+        bridgeEngine_.startMtcInput (mtcInCombo_.getSelectedItemIndex(), err);
+
+    if (artnetInCombo_.getNumItems() > 0)
     {
-        const auto& c = allInputChoices_[i];
-        if (matchesDriverFilter (sourceDriverCombo_.getText(), c.typeName))
+        const auto artnetListenIp = artnetListenIpEditor_.getText().trim();
+        bridgeEngine_.startArtnetInput (artnetInCombo_.getSelectedItemIndex(),
+                                        (artnetListenIp == "0.0.0.0" ? juce::String() : artnetListenIp),
+                                        err);
+    }
+
+    FrameRate fps = FrameRate::FPS_25;
+    if (oscFpsCombo_.getSelectedId() == 1) fps = FrameRate::FPS_24;
+    if (oscFpsCombo_.getSelectedId() == 3) fps = FrameRate::FPS_2997;
+    if (oscFpsCombo_.getSelectedId() == 4) fps = FrameRate::FPS_30;
+    const auto bindIp = (oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim()
+                                                                     : parseBindIpFromAdapterLabel (oscAdapterCombo_.getText()));
+    bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()),
+                                 bindIp,
+                                 fps,
+                                 oscAddrStrEditor_.getText(),
+                                 oscAddrFloatEditor_.getText(),
+                                 err);
+
+    restartSelectedSource();
+
+    if (err.isNotEmpty())
+        statusLabel_.setText (err, juce::dontSendNotification);
+}
+
+void TriggerContentComponent::startAudioDeviceScan()
+{
+    if (scanThread_ != nullptr && scanThread_->isThreadRunning())
+    {
+        if (! scanThread_->stopThread (2000))
+            return;
+    }
+
+    scanThread_ = std::make_unique<AudioScanThread> (this);
+    scanThread_->startThread();
+}
+
+void TriggerContentComponent::onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
+                                                   const juce::Array<bridge::engine::AudioChoice>&)
+{
+    const auto prevInDriver = ltcInDriverCombo_.getText();
+    inputChoices_ = inputs;
+    fillDriverCombo (ltcInDriverCombo_, inputChoices_, prevInDriver);
+    refreshLtcDeviceListsByDriver();
+    refreshNetworkMidiLists();
+    onInputSettingsChanged();
+}
+
+void TriggerContentComponent::refreshNetworkMidiLists()
+{
+    mtcInCombo_.clear();
+    auto ins = bridgeEngine_.midiInputs();
+    for (int i = 0; i < ins.size(); ++i)
+        mtcInCombo_.addItem (ins[i], i + 1);
+    if (mtcInCombo_.getNumItems() > 0)
+        mtcInCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
+
+    auto ifaces = bridgeEngine_.artnetInterfaces();
+    artnetInCombo_.clear();
+    oscAdapterCombo_.clear();
+    oscAdapterCombo_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
+    oscAdapterCombo_.addItem ("Loopback (127.0.0.1)", 2);
+    for (int i = 0; i < ifaces.size(); ++i)
+    {
+        artnetInCombo_.addItem (ifaces[i], i + 1);
+        if (! ifaces[i].startsWithIgnoreCase ("ALL INTERFACES"))
+            oscAdapterCombo_.addItem (ifaces[i], i + 3);
+    }
+    if (artnetInCombo_.getNumItems() > 0)
+        artnetInCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
+    if (oscAdapterCombo_.getNumItems() > 0)
+        oscAdapterCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
+    syncOscIpWithAdapter();
+}
+
+void TriggerContentComponent::refreshLtcDeviceListsByDriver()
+{
+    juce::String prevInType, prevInDev;
+
+    const int prevInId = ltcInDeviceCombo_.getSelectedId();
+    const int prevInIdx = prevInId > 0 ? prevInId - 1 : -1;
+    if (juce::isPositiveAndBelow (prevInIdx, filteredInputIndices_.size()))
+    {
+        const int realIdx = filteredInputIndices_[prevInIdx];
+        if (juce::isPositiveAndBelow (realIdx, inputChoices_.size()))
         {
-            filtered.add (c);
+            prevInType = inputChoices_[realIdx].typeName;
+            prevInDev = inputChoices_[realIdx].deviceName;
+        }
+    }
+
+    filteredInputChoices_.clear();
+    filteredInputIndices_.clear();
+    for (int i = 0; i < inputChoices_.size(); ++i)
+    {
+        const auto& c = inputChoices_[i];
+        if (matchesDriverFilter (ltcInDriverCombo_.getText(), c.typeName))
+        {
+            filteredInputChoices_.add (c);
             filteredInputIndices_.add (i);
         }
     }
-    return filtered;
+
+    fillAudioCombo (ltcInDeviceCombo_, filteredInputChoices_);
+
+    if (prevInDev.isNotEmpty())
+    {
+        for (int i = 0; i < filteredInputIndices_.size(); ++i)
+        {
+            const int realIdx = filteredInputIndices_[i];
+            if (juce::isPositiveAndBelow (realIdx, inputChoices_.size())
+                && inputChoices_[realIdx].typeName == prevInType
+                && inputChoices_[realIdx].deviceName == prevInDev)
+            {
+                ltcInDeviceCombo_.setSelectedId (i + 1, juce::dontSendNotification);
+                break;
+            }
+        }
+    }
+}
+
+void TriggerContentComponent::fillAudioCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::AudioChoice>& choices)
+{
+    combo.clear();
+    if (choices.isEmpty())
+    {
+        combo.addItem ("(No audio devices)", kPlaceholderItemId);
+        combo.setSelectedId (kPlaceholderItemId, juce::dontSendNotification);
+        return;
+    }
+
+    for (int i = 0; i < choices.size(); ++i)
+        combo.addItem (choices[i].displayName, i + 1);
+    combo.setSelectedId (1, juce::dontSendNotification);
+}
+
+double TriggerContentComponent::comboSampleRate (const juce::ComboBox& combo)
+{
+    const auto text = combo.getText().trim();
+    if (text.startsWithIgnoreCase ("default"))
+        return 0.0;
+    return juce::jmax (0.0, text.getDoubleValue());
+}
+
+int TriggerContentComponent::comboChannelIndex (const juce::ComboBox& combo)
+{
+    if (combo.getSelectedId() == 100)
+        return -1;
+    return juce::jmax (0, combo.getSelectedItemIndex());
+}
+
+void TriggerContentComponent::styleCombo (juce::ComboBox& c)
+{
+    c.setColour (juce::ComboBox::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
+    c.setColour (juce::ComboBox::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+    c.setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+}
+
+void TriggerContentComponent::styleEditor (juce::TextEditor& e)
+{
+    e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
+    e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+    e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x56, 0x5f, 0x6b));
+    e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    e.setJustification (juce::Justification::centredLeft);
+    e.setIndents (8, 2);
+}
+
+void TriggerContentComponent::styleSlider (juce::Slider& s, bool dbStyle)
+{
+    s.setColour (juce::Slider::backgroundColourId, juce::Colour::fromRGB (0x20, 0x20, 0x20));
+    s.setColour (juce::Slider::trackColourId, dbStyle ? juce::Colour::fromRGB (0x3d, 0x80, 0x70) : juce::Colour::fromRGB (0x1f, 0x3b, 0x45));
+    s.setColour (juce::Slider::thumbColourId, juce::Colours::white);
+    s.setColour (juce::Slider::textBoxTextColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+    s.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
+}
+
+void TriggerContentComponent::syncOscIpWithAdapter()
+{
+    const auto ip = parseBindIpFromAdapterLabel (oscAdapterCombo_.getText());
+    const auto lockIp = (ip != "0.0.0.0");
+    if (lockIp)
+        oscIpEditor_.setText (ip, juce::dontSendNotification);
+    else if (oscIpEditor_.getText().trim().isEmpty() || oscIpEditor_.getText().trim() == "127.0.0.1")
+        oscIpEditor_.setText ("0.0.0.0", juce::dontSendNotification);
+    oscIpEditor_.setReadOnly (lockIp);
 }
 
 bool TriggerContentComponent::parseTcToFrames (const juce::String& tc, int fps, int& outFrames)
@@ -2000,10 +2013,14 @@ MainWindow::MainWindow()
                             juce::Colours::black,
                             juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton)
 {
+    setColour (juce::ResizableWindow::backgroundColourId, juce::Colour::fromRGB (0x11, 0x12, 0x16));
     setUsingNativeTitleBar (true);
     setResizable (true, true);
     setResizeLimits (980, 620, 1800, 1400);
     setContentOwned (new TriggerContentComponent(), true);
+    const auto icon = loadTriggerAppIcon();
+    if (icon.isValid())
+        setIcon (icon);
     centreWithSize (1240, 820);
     setVisible (true);
 }
@@ -2013,3 +2030,6 @@ void MainWindow::closeButtonPressed()
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 } // namespace trigger
+
+
+

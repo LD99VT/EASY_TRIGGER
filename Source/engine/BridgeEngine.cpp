@@ -76,6 +76,20 @@ juce::StringArray BridgeEngine::artnetInterfaces()
 bool BridgeEngine::startLtcInput (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut)
 {
     const int ch = juce::jmax (0, channel);
+    const bool sameConfig =
+        ltcInput_.getIsRunning()
+        && choice.typeName == ltcInType_
+        && choice.deviceName == ltcInDevice_
+        && ch == ltcInChannel_
+        && std::abs (sampleRate - ltcInSampleRate_) < 0.5
+        && bufferSize == ltcInBufferSize_;
+
+    if (sameConfig)
+    {
+        errorOut.clear();
+        return true;
+    }
+
     bool ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, sampleRate, bufferSize);
     if (! ok && (sampleRate > 0.0 || bufferSize > 0))
         ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, 0.0, 0);
@@ -88,6 +102,8 @@ bool BridgeEngine::startLtcInput (const AudioChoice& choice, int channel, double
     ltcInType_ = choice.typeName;
     ltcInDevice_ = choice.deviceName;
     ltcInChannel_ = ch;
+    ltcInSampleRate_ = sampleRate;
+    ltcInBufferSize_ = bufferSize;
     errorOut.clear();
     return true;
 }
@@ -98,16 +114,21 @@ void BridgeEngine::stopLtcInput()
     ltcInType_.clear();
     ltcInDevice_.clear();
     ltcInChannel_ = -1;
+    ltcInSampleRate_ = 0.0;
+    ltcInBufferSize_ = 0;
 }
 
 bool BridgeEngine::startMtcInput (int deviceIndex, juce::String& errorOut)
 {
-    mtcInput_.refreshDeviceList();
-    if (! mtcInput_.start (deviceIndex))
+    const bool sameConfig = mtcInput_.getIsRunning() && deviceIndex == mtcInDeviceIndex_;
+    if (! sameConfig)
+        mtcInput_.refreshDeviceList();
+    if (! sameConfig && ! mtcInput_.start (deviceIndex))
     {
         errorOut = "Failed to start MTC input";
         return false;
     }
+    mtcInDeviceIndex_ = deviceIndex;
     errorOut.clear();
     return true;
 }
@@ -115,16 +136,25 @@ bool BridgeEngine::startMtcInput (int deviceIndex, juce::String& errorOut)
 void BridgeEngine::stopMtcInput()
 {
     mtcInput_.stop();
+    mtcInDeviceIndex_ = -1;
 }
 
-bool BridgeEngine::startArtnetInput (int interfaceIndex, juce::String& errorOut)
+bool BridgeEngine::startArtnetInput (int interfaceIndex, const juce::String& bindIp, juce::String& errorOut)
 {
-    artnetInput_.refreshNetworkInterfaces();
-    if (! artnetInput_.start (interfaceIndex, 6454))
+    const auto bind = bindIp.trim().isNotEmpty() ? bindIp.trim() : juce::String ("0.0.0.0");
+    const bool sameConfig =
+        artnetInput_.getIsRunning()
+        && interfaceIndex == artnetInInterfaceIndex_
+        && bind == artnetInBindIp_;
+    if (! sameConfig)
+        artnetInput_.refreshNetworkInterfaces();
+    if (! sameConfig && ! artnetInput_.start (interfaceIndex, 6454, bind))
     {
         errorOut = "Failed to start ArtNet input";
         return false;
     }
+    artnetInInterfaceIndex_ = interfaceIndex;
+    artnetInBindIp_ = bind;
     errorOut.clear();
     return true;
 }
@@ -132,12 +162,34 @@ bool BridgeEngine::startArtnetInput (int interfaceIndex, juce::String& errorOut)
 void BridgeEngine::stopArtnetInput()
 {
     artnetInput_.stop();
+    artnetInInterfaceIndex_ = -1;
+    artnetInBindIp_ = "0.0.0.0";
 }
 
 bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, juce::String& errorOut)
 {
+    const bool sameConfig =
+        oscInput_.getIsRunning()
+        && port == oscInPort_
+        && bindIp == oscInBindIp_
+        && fps == oscInFps_
+        && addrStr == oscInAddrStr_
+        && addrFloat == oscInAddrFloat_;
+    if (sameConfig)
+    {
+        errorOut.clear();
+        return true;
+    }
+
+    if (oscInput_.getIsRunning())
+        oscInput_.stop();
     if (! oscInput_.start (port, bindIp, fps, addrStr, addrFloat, errorOut))
         return false;
+    oscInPort_ = port;
+    oscInBindIp_ = bindIp;
+    oscInFps_ = fps;
+    oscInAddrStr_ = addrStr;
+    oscInAddrFloat_ = addrFloat;
     errorOut.clear();
     return true;
 }
@@ -145,6 +197,11 @@ bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRat
 void BridgeEngine::stopOscInput()
 {
     oscInput_.stop();
+    oscInPort_ = 0;
+    oscInBindIp_.clear();
+    oscInFps_ = FrameRate::FPS_25;
+    oscInAddrStr_.clear();
+    oscInAddrFloat_.clear();
 }
 
 bool BridgeEngine::startLtcOutput (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut)

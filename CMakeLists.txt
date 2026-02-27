@@ -15,7 +15,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(juce)
 
 juce_add_gui_app(EasyTrigger
-  PRODUCT_NAME "Easy Trigger v2"
+  PRODUCT_NAME "Easy Trigger"
   MICROPHONE_PERMISSION_ENABLED TRUE
   MICROPHONE_PERMISSION_TEXT "Easy Trigger requires audio input access for LTC input."
 )
@@ -58,6 +58,8 @@ if(WIN32)
   set(ASIO_SDK_DIR "$ENV{ASIO_SDK_DIR}" CACHE PATH "Path to Steinberg ASIO SDK root")
   if(NOT ASIO_SDK_DIR)
     set(_asio_candidates
+      "${CMAKE_CURRENT_SOURCE_DIR}/ASIOSDK"
+      "${CMAKE_CURRENT_SOURCE_DIR}/asiosdk"
       "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk"
       "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asiosdk"
       "C:/ASIOSDK"

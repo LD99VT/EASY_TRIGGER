@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Easy Trigger - Guide</title>
+  <link rel="icon" type="image/png" href="../Icon/Icon.png" />
+  <style>
+    :root {
+      --bg: #202228;
+      --panel: #2a2d36;
+      --text: #e8e8e8;
+      --muted: #b8bcc7;
+      --green: #71d17a;
+      --orange: #d79b2f;
+      --red: #ff6b6b;
+      --line: #4f5565;
+      --btn: #3a3f4b;
+      --btn-hover: #4a5160;
+      --btn-active: #5b6477;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .hero {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .hero img {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid #5f6677;
+      background: #2b2f38;
+      flex: 0 0 auto;
+    }
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #2b2f38;
+      border: 1px solid #596074;
+      border-radius: 10px;
+      padding: 4px;
+      flex: 0 0 auto;
+    }
+    .lang-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #383e4b;
+      color: #d7deef;
+      font-size: 14px;
+      user-select: none;
+    }
+    .lang-btn {
+      appearance: none;
+      border: 1px solid transparent;
+      background: var(--btn);
+      color: #d4d8e2;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .lang-btn:hover { background: var(--btn-hover); }
+    .lang-btn.active {
+      background: var(--btn-active);
+      color: #ffffff;
+      border-color: #7a859c;
+    }
+    h1, h2 { margin: 0 0 12px; }
+    h1 {
+      font-size: 30px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    h2 { font-size: 20px; margin-top: 24px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-top: 12px;
+    }
+    ul { margin: 8px 0 0 20px; }
+    li { margin: 6px 0; }
+    code {
+      background: #1a1c22;
+      border: 1px solid #3b4050;
+      border-radius: 5px;
+      padding: 1px 6px;
+      color: #d7e4ff;
+      font-size: 0.95em;
+    }
+    .ok { color: var(--green); font-weight: 700; }
+    .warn { color: var(--orange); font-weight: 700; }
+    .bad { color: var(--red); font-weight: 700; }
+    .small { color: var(--muted); font-size: 13px; }
+
+    .lang-page { display: none; }
+    body[data-lang="en"] .lang-page[data-lang="en"] { display: block; }
+    body[data-lang="uk"] .lang-page[data-lang="uk"] { display: block; }
+
+    @media (max-width: 700px) {
+      body { padding: 14px; }
+      .topbar { flex-direction: column; align-items: stretch; }
+      .lang-switch { width: fit-content; }
+      h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body data-lang="en">
+  <div class="wrap">
+    <div class="topbar">
+      <div class="hero">
+        <img src="../Icon/Icon_mac.png" alt="Easy Trigger icon" />
+        <h1>Easy Trigger - Full Guide</h1>
+      </div>
+      <div class="lang-switch" aria-label="Language switch">
+        <span class="lang-icon" title="Language">🌐</span>
+        <button class="lang-btn active" data-set-lang="en" type="button">EN</button>
+        <button class="lang-btn" data-set-lang="uk" type="button">UA</button>
+      </div>
+    </div>
+
+    <div class="lang-page" data-lang="en">
+      <p class="small">UI version: v1.0</p>
+
+      <div class="panel">
+        <h2>1. What this plugin does</h2>
+        <ul>
+          <li>Receives timecode from <b>LTC / MTC / Art-Net / OSC</b>.</li>
+          <li>Compares incoming time with each clip <b>Trigger Time</b>.</li>
+          <li>When matched, sends an OSC command to Resolume to trigger the target clip.</li>
+          <li>Row highlight: <span class="ok">green</span> = active/selected in Resolume, <span class="warn">orange</span> = fired by timecode trigger.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>2. Left side (Input + Resolume)</h2>
+        <ul>
+          <li><b>Timecode Input Settings</b>: choose source type and source parameters.</li>
+          <li><b>Resolume Settings</b>: IP/Port for outgoing OSC and Input Port for incoming OSC.</li>
+          <li><b>Sync</b>: connection state indicator (color only).</li>
+          <li><b>Global Offset</b>: global trigger shift, supports <code>-HH:MM:SS:FF</code>.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>3. Right side (Layers/Clips)</h2>
+        <ul>
+          <li>Each layer can be collapsed with the arrow button.</li>
+          <li>Layer checkbox includes/excludes the whole layer from timecode trigger.</li>
+          <li>Clip checkbox includes/excludes a single clip from timecode trigger.</li>
+          <li><b>Clip name</b>, <b>Countdown</b>, <b>Trigger Time</b>, <b>Duration</b>.</li>
+          <li><b>EndClip Event</b> sets post-duration action: <code>Off</code>, <code>Col</code>, <code>L/C</code>.</li>
+          <li><b>▶</b> button (Test) triggers the clip manually.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>4. Main buttons</h2>
+        <ul>
+          <li><b>Get Clips</b> - requests clips from Resolume and fills the list.</li>
+          <li><b>Settings</b> - opens save/load menu for <code>.etr</code> files.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>5. .etr file format</h2>
+        <ul>
+          <li><b>Save Settings</b>: stores only Input/Resolume/UI settings.</li>
+          <li><b>Save All</b>: stores settings plus all clip trigger rows.</li>
+          <li>Loading a file without clip rows is supported (settings-only restore).</li>
+          <li>Auto-load of the selected file on startup is available.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>6. Main OSC addresses</h2>
+        <ul>
+          <li>Clip offset: <code>/composition/layers/[layer]/clips/[clip]/transport/position/behaviour/offset</code></li>
+          <li>Clip duration: <code>/composition/layers/[layer]/clips/[clip]/transport/position/behaviour/duration</code></li>
+          <li>Trigger clip: <code>/composition/layers/[layer]/clips/[clip]/connect</code></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>7. Troubleshooting</h2>
+        <ul>
+          <li><span class="bad">"OSC listener is not running"</span>: input port is busy or listener failed to start after loading settings.</li>
+          <li>No clips after <b>Get Clips</b>: verify <code>IP/Port</code>, <code>Input Port</code>, and that Resolume is running.</li>
+          <li>Clip does not trigger: verify layer/clip checkboxes are enabled and <code>Trigger Time</code> format is valid.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="lang-page" data-lang="uk">
+      <p class="small">Версія UI: v1.0</p>
+
+      <div class="panel">
+        <h2>1. Що робить плагін</h2>
+        <ul>
+          <li>Приймає таймкод з <b>LTC / MTC / Art-Net / OSC</b>.</li>
+          <li>Порівнює вхідний час із <b>Trigger Time</b> кожного кліпу.</li>
+          <li>При збігу надсилає OSC-команду в Resolume для запуску цільового кліпу.</li>
+          <li>Підсвітка рядка: <span class="ok">зелений</span> = активний/вибраний у Resolume, <span class="warn">помаранчевий</span> = спрацював по таймкоду.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>2. Ліва частина (Input + Resolume)</h2>
+        <ul>
+          <li><b>Timecode Input Settings</b>: вибір типу джерела та параметрів входу.</li>
+          <li><b>Resolume Settings</b>: IP/Port для вихідного OSC та Input Port для вхідного OSC.</li>
+          <li><b>Sync</b>: індикатор стану зʼєднання (лише колір).</li>
+          <li><b>Global Offset</b>: глобальне зміщення тригерів, формат <code>-HH:MM:SS:FF</code>.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>3. Права частина (Layers/Clips)</h2>
+        <ul>
+          <li>Кожен шар можна згорнути кнопкою-стрілкою.</li>
+          <li>Чекбокс шару вмикає/вимикає весь шар для тригерів по таймкоду.</li>
+          <li>Чекбокс кліпу вмикає/вимикає окремий кліп для тригерів.</li>
+          <li>Колонки: <b>Clip name</b>, <b>Countdown</b>, <b>Trigger Time</b>, <b>Duration</b>.</li>
+          <li><b>EndClip Event</b> задає дію після тривалості: <code>Off</code>, <code>Col</code>, <code>L/C</code>.</li>
+          <li>Кнопка <b>▶</b> (Test) запускає кліп вручну.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>4. Основні кнопки</h2>
+        <ul>
+          <li><b>Get Clips</b> - запитує кліпи з Resolume і заповнює список.</li>
+          <li><b>Settings</b> - відкриває меню збереження/завантаження файлів <code>.etr</code>.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>5. Формат файлу .etr</h2>
+        <ul>
+          <li><b>Save Settings</b>: зберігає тільки налаштування Input/Resolume/UI.</li>
+          <li><b>Save All</b>: зберігає налаштування та всі рядки тригерів кліпів.</li>
+          <li>Підтримується завантаження файлу без рядків кліпів (тільки налаштування).</li>
+          <li>Доступне автозавантаження вибраного файлу при старті.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>6. Основні OSC-адреси</h2>
+        <ul>
+          <li>Offset кліпу: <code>/composition/layers/[layer]/clips/[clip]/transport/position/behaviour/offset</code></li>
+          <li>Duration кліпу: <code>/composition/layers/[layer]/clips/[clip]/transport/position/behaviour/duration</code></li>
+          <li>Запуск кліпу: <code>/composition/layers/[layer]/clips/[clip]/connect</code></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>7. Вирішення проблем</h2>
+        <ul>
+          <li><span class="bad">"OSC listener is not running"</span>: вхідний порт зайнятий або listener не запустився після завантаження налаштувань.</li>
+          <li>Після <b>Get Clips</b> немає кліпів: перевір <code>IP/Port</code>, <code>Input Port</code> і що Resolume запущений.</li>
+          <li>Кліп не тригериться: перевір, що чекбокси шарів/кліпів увімкнені, а формат <code>Trigger Time</code> коректний.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const root = document.body;
+      const btns = Array.from(document.querySelectorAll('.lang-btn'));
+      const stored = localStorage.getItem('easy_trigger_help_lang');
+      const initial = (stored === 'uk' || stored === 'en') ? stored : 'en';
+
+      function applyLang(lang) {
+        root.setAttribute('data-lang', lang);
+        btns.forEach((b) => b.classList.toggle('active', b.dataset.setLang === lang));
+        localStorage.setItem('easy_trigger_help_lang', lang);
+      }
+
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => applyLang(btn.dataset.setLang));
+      });
+
+      applyLang(initial);
+    })();
+  </script>
+</body>
+</html>

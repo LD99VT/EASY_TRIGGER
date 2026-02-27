@@ -4,6 +4,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <atomic>
 
 #include "core/Timecode.h"
 #include "engine/BridgeEngine.h"
@@ -50,6 +51,29 @@ public:
     }
 private:
     bool expanded_ { true };
+};
+
+class HelpCircleButton final : public juce::Component
+{
+public:
+    std::function<void()> onClick;
+    void paint (juce::Graphics& g) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+        g.fillEllipse (b);
+        g.setColour (juce::Colour::fromRGB (0x66, 0x66, 0x66));
+        g.drawEllipse (b, 1.5f);
+        g.setColour (juce::Colour::fromRGB (0x99, 0x99, 0x99));
+        auto f = juce::FontOptions (13.0f).withStyle ("Bold");
+        g.setFont (juce::Font (f));
+        g.drawFittedText ("?", getLocalBounds().translated (0, -1), juce::Justification::centred, 1);
+    }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (onClick)
+            onClick();
+    }
 };
 
 class DotToggle final : public juce::Component
@@ -168,6 +192,85 @@ private:
     juce::Colour meterColour_ { juce::Colour (0xFF3D8070) };
 };
 
+class BridgeLookAndFeel final : public juce::LookAndFeel_V4
+{
+public:
+    void drawPopupMenuBackground (juce::Graphics& g, int, int) override
+    {
+        g.fillAll (findColour (juce::PopupMenu::backgroundColourId));
+    }
+
+    void drawButtonBackground (juce::Graphics& g,
+                               juce::Button& button,
+                               const juce::Colour& backgroundColour,
+                               bool isMouseOverButton,
+                               bool isButtonDown) override
+    {
+        juce::ignoreUnused (backgroundColour);
+        auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+        auto c = button.findColour (juce::TextButton::buttonColourId);
+        if (isButtonDown)
+            c = c.darker (0.15f);
+        else if (isMouseOverButton)
+            c = c.brighter (0.08f);
+
+        g.setColour (c);
+        g.fillRoundedRectangle (bounds, 5.0f);
+        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    }
+
+    void drawComboBox (juce::Graphics& g,
+                       int width,
+                       int height,
+                       bool,
+                       int,
+                       int,
+                       int,
+                       int,
+                       juce::ComboBox& box) override
+    {
+        auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
+        g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
+        g.fillRoundedRectangle (bounds, 5.0f);
+        g.setColour (box.findColour (juce::ComboBox::outlineColourId));
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+
+        juce::Path p;
+        const float cx = (float) width - 14.0f;
+        const float cy = (float) height * 0.5f;
+        p.startNewSubPath (cx - 5.0f, cy - 2.0f);
+        p.lineTo (cx, cy + 3.0f);
+        p.lineTo (cx + 5.0f, cy - 2.0f);
+        g.setColour (box.findColour (juce::ComboBox::arrowColourId));
+        g.strokePath (p, juce::PathStrokeType (1.5f));
+    }
+
+    void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
+    {
+        label.setBounds (box.getLocalBounds().reduced (8, 1));
+        label.setFont (getComboBoxFont (box));
+        label.setJustificationType (juce::Justification::centredLeft);
+    }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
+        g.setColour (editor.findColour (juce::TextEditor::backgroundColourId));
+        g.fillRoundedRectangle (bounds, 5.0f);
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
+        const auto c = editor.hasKeyboardFocus (true)
+                           ? editor.findColour (juce::TextEditor::focusedOutlineColourId)
+                           : editor.findColour (juce::TextEditor::outlineColourId);
+        g.setColour (c);
+        g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    }
+};
+
 class TriggerContentComponent final : public juce::Component,
                                       private juce::Timer,
                                       private juce::TableListBoxModel
@@ -216,10 +319,12 @@ private:
 
     void loadFonts();
     void applyTheme();
-    void refreshInputsForSource();
-    void refreshLtcOutDevices();
-    void startInput();
-    void applyLtcOutput();
+    void openHelpPage();
+    void restartSelectedSource();
+    void onInputSettingsChanged();
+    int calcPreferredHeight() const;
+    int calcHeightForState (bool sourceExpanded, int sourceId, bool resolumeExpanded) const;
+    void updateWindowHeight();
     void refreshTriggerRows();
     void rebuildDisplayRows();
     void updateTableColumnWidths();
@@ -229,25 +334,30 @@ private:
     void startAudioDeviceScan();
     void onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
                               const juce::Array<bridge::engine::AudioChoice>& outputs);
+    void refreshNetworkMidiLists();
+    void refreshLtcDeviceListsByDriver();
+    void fillAudioCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::AudioChoice>& choices);
+    static double comboSampleRate (const juce::ComboBox& combo);
+    static int comboChannelIndex (const juce::ComboBox& combo);
+    static void styleCombo (juce::ComboBox& c);
+    static void styleEditor (juce::TextEditor& e);
+    static void styleSlider (juce::Slider& s, bool dbStyle);
+    void syncOscIpWithAdapter();
     void sendTestTrigger (int layer, int clip);
-    juce::Array<bridge::engine::AudioChoice> filteredLtcInputs();
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
 
     bridge::engine::BridgeEngine bridgeEngine_;
     trigger::engine::ResolumeClipCollector clipCollector_;
-    juce::Array<bridge::engine::AudioChoice> allInputChoices_;
-    juce::Array<bridge::engine::AudioChoice> allOutputChoices_;
+    juce::Array<bridge::engine::AudioChoice> inputChoices_;
+    juce::Array<bridge::engine::AudioChoice> filteredInputChoices_;
     juce::Array<int> filteredInputIndices_;
-    juce::Array<int> filteredOutputIndices_;
     std::unique_ptr<AudioScanThread> scanThread_;
-    juce::Array<bridge::engine::AudioChoice> ltcOutChoices_;
     std::vector<TriggerClip> triggerRows_;
     std::vector<DisplayRow> displayRows_;
     std::map<int, bool> layerExpanded_;
     std::map<int, bool> layerEnabled_;
     std::set<std::pair<int, int>> currentTriggerKeys_;
-    juce::Array<bridge::engine::AudioChoice> sourceLtcChoices_;
     std::map<std::pair<int, int>, bool> triggerRangeActive_;
     int lastInputFrames_ { 0 };
     bool hasLastInputFrames_ { false };
@@ -256,6 +366,9 @@ private:
     juce::Font headerBold_;
     juce::Font headerLight_;
     juce::Font mono_;
+    bool hasLatchedTc_ { false };
+    Timecode latchedTc_ {};
+    FrameRate latchedFps_ { FrameRate::FPS_25 };
     bool hasLiveInputTc_ { false };
     Timecode liveInputTc_ {};
     FrameRate liveInputFps_ { FrameRate::FPS_25 };
@@ -263,40 +376,31 @@ private:
     juce::Label easyLabel_ { {}, "EASY" };
     juce::Label triggerLabel_ { {}, "TRIGGER" };
     juce::Label versionLabel_ { {}, "v2.4.13" };
+    HelpCircleButton helpButton_;
     juce::Label tcLabel_ { {}, "00:00:00:00" };
     juce::Label fpsLabel_ { {}, "TC FPS: --" };
     juce::Label statusLabel_ { {}, "STOPPED" };
-    juce::Label sourceHeader_ { {}, "Source" };
+    juce::Label sourceHeaderLabel_ { {}, "Source" };
     juce::Label resolumeHeader_ { {}, "Resolume Settings" };
-    juce::Label ltcOutHeader_ { {}, "Out LTC" };
     ExpandCircleButton sourceExpandBtn_;
     ExpandCircleButton resolumeExpandBtn_;
-    ExpandCircleButton ltcOutExpandBtn_;
     bool sourceExpanded_ { true };
     bool resolumeExpanded_ { false };
-    bool ltcOutExpanded_ { false };
-    juce::Label sourceLbl_ { {}, "Source:" };
-    juce::Label sourceDriverLbl_ { {}, "Driver:" };
-    juce::Label sourceDeviceLbl_ { {}, "Device (input):" };
-    juce::Label sourceChannelLbl_ { {}, "Channel:" };
-    juce::Label sourceRateLbl_ { {}, "Sample rate:" };
-    juce::Label sourceLevelLbl_ { {}, "Level:" };
-    juce::Label sourceGainLbl_ { {}, "Input gain:" };
-    juce::Label sourceMtcLbl_ { {}, "MTC Input:" };
-    juce::Label sourceArtLbl_ { {}, "ArtNet adapter:" };
-    juce::Label oscPortLbl_ { {}, "OSC Port:" };
+    juce::Label inDriverLbl_ { {}, "Driver:" };
+    juce::Label inDeviceLbl_ { {}, "Device (input):" };
+    juce::Label inChannelLbl_ { {}, "Channel:" };
+    juce::Label inRateLbl_ { {}, "Sample rate:" };
+    juce::Label inLevelLbl_ { {}, "Level:" };
+    juce::Label inGainLbl_ { {}, "Input gain:" };
+    juce::Label mtcInLbl_ { {}, "MTC Input:" };
+    juce::Label artInLbl_ { {}, "ArtNet adapter:" };
+    juce::Label artInListenIpLbl_ { {}, "Listen IP:" };
     juce::Label oscAdapterLbl_ { {}, "OSC adapter:" };
     juce::Label oscIpLbl_ { {}, "OSC Listen IP:" };
+    juce::Label oscPortLbl_ { {}, "OSC Port:" };
     juce::Label oscFpsLbl_ { {}, "OSC FPS:" };
-    juce::Label oscCmdStrLbl_ { {}, "OSC str cmd:" };
-    juce::Label oscCmdFloatLbl_ { {}, "OSC float cmd:" };
-    juce::Label ltcOutDriverLbl_ { {}, "Out driver:" };
-    juce::Label ltcOutDeviceLbl_ { {}, "Out device:" };
-    juce::Label ltcOutChannelLbl_ { {}, "Out channel:" };
-    juce::Label ltcOutRateLbl_ { {}, "Sample rate:" };
-    juce::Label ltcOutOffsetLbl_ { {}, "Offset (frames):" };
-    juce::Label ltcOutLevelLbl_ { {}, "Output level:" };
-    juce::Label ltcThruLbl_ { {}, "Thru" };
+    juce::Label oscStrLbl_ { {}, "OSC str cmd:" };
+    juce::Label oscFloatLbl_ { {}, "OSC float cmd:" };
     juce::Label resSendIpLbl_ { {}, "Resolume send IP:" };
     juce::Label resSendPortLbl_ { {}, "Resolume send port:" };
     juce::Label resListenIpLbl_ { {}, "Resolume listen IP:" };
@@ -305,30 +409,22 @@ private:
     juce::Label resMaxClipsLbl_ { {}, "Max clips:" };
 
     juce::ComboBox sourceCombo_;
-    juce::ComboBox sourceDriverCombo_;
-    juce::ComboBox sourceDeviceCombo_;
-    juce::ComboBox sourceChannelCombo_;
-    juce::ComboBox sourceRateCombo_;
-    LevelMeter sourceLevelMeter_;
-    float sourceLevelSmoothed_ { 0.0f };
-    juce::Slider sourceGainSlider_;
-    juce::ComboBox sourceMtcCombo_;
-    juce::ComboBox sourceArtCombo_;
+    juce::ComboBox ltcInDriverCombo_;
+    juce::ComboBox ltcInDeviceCombo_;
+    juce::ComboBox ltcInChannelCombo_;
+    juce::ComboBox ltcInSampleRateCombo_;
+    LevelMeter ltcInLevelBar_;
+    float ltcInLevelSmoothed_ { 0.0f };
+    juce::Slider ltcInGainSlider_;
+    juce::ComboBox mtcInCombo_;
+    juce::ComboBox artnetInCombo_;
+    juce::TextEditor artnetListenIpEditor_;
     juce::ComboBox oscAdapterCombo_;
     juce::TextEditor oscIpEditor_;
     juce::TextEditor oscPortEditor_;
     juce::ComboBox oscFpsCombo_;
-    juce::TextEditor oscCmdStrEditor_;
-    juce::TextEditor oscCmdFloatEditor_;
-
-    MacSwitch ltcOutSwitch_;
-    DotToggle ltcThruDot_;
-    juce::ComboBox ltcOutDriverCombo_;
-    juce::ComboBox ltcOutDeviceCombo_;
-    juce::ComboBox ltcOutChannelCombo_;
-    juce::ComboBox ltcOutRateCombo_;
-    juce::TextEditor ltcOutOffsetEditor_;
-    juce::Slider ltcOutLevelSlider_;
+    juce::TextEditor oscAddrStrEditor_;
+    juce::TextEditor oscAddrFloatEditor_;
 
     juce::TextEditor resolumeSendIp_;
     juce::TextEditor resolumeSendPort_;
@@ -343,6 +439,9 @@ private:
     juce::Array<juce::Rectangle<int>> sectionRowRects_;
     juce::Array<juce::Rectangle<int>> rightSectionRects_;
     juce::Rectangle<int> headerRect_;
+    juce::Rectangle<int> timerRect_;
+    juce::Rectangle<int> statusBarRect_;
+    std::unique_ptr<BridgeLookAndFeel> lookAndFeel_;
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };
     juce::Colour row_ { juce::Colour::fromRGB (0x3a, 0x3a, 0x3a) };

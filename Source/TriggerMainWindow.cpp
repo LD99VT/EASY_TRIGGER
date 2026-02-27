@@ -358,9 +358,10 @@ public:
         juce::Array<bridge::engine::AudioChoice> outputs;
 
         juce::AudioDeviceManager tempMgr;
-        tempMgr.initialise (128, 128, nullptr, false);
+        juce::OwnedArray<juce::AudioIODeviceType> types;
+        tempMgr.createAudioDeviceTypes (types);
 
-        for (auto* type : tempMgr.getAvailableDeviceTypes())
+        for (auto* type : types)
         {
             if (threadShouldExit())
                 return;
@@ -434,14 +435,15 @@ TriggerContentComponent::TriggerContentComponent()
     sourceCombo_.setSelectedId (1, juce::dontSendNotification);
     sourceCombo_.onChange = [this]
     {
-        startAudioDeviceScan();
+        refreshInputsForSource();
+        startInput();
         resized();
         repaint();
     };
 
     sourceDriverCombo_.addItem ("Default (all devices)", 1);
     sourceDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceDriverCombo_.onChange = [this] { startAudioDeviceScan(); };
+    sourceDriverCombo_.onChange = [this] { refreshInputsForSource(); startInput(); };
 
     for (int i = 1; i <= 8; ++i)
     {
@@ -492,7 +494,7 @@ TriggerContentComponent::TriggerContentComponent()
 
     ltcOutDriverCombo_.addItem ("Default (all devices)", 1);
     ltcOutDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutDriverCombo_.onChange = [this] { startAudioDeviceScan(); };
+    ltcOutDriverCombo_.onChange = [this] { refreshLtcOutDevices(); applyLtcOutput(); };
     ltcOutDeviceCombo_.onChange = [this] { applyLtcOutput(); };
     ltcOutChannelCombo_.onChange = [this] { applyLtcOutput(); };
     ltcOutRateCombo_.addItem ("Default", 1);

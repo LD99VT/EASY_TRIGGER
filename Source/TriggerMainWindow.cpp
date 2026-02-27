@@ -852,13 +852,14 @@ void TriggerContentComponent::paintRowBackground (juce::Graphics& g, int row, in
     if (juce::isPositiveAndBelow (dr.clipIndex, (int) triggerRows_.size()))
     {
         const auto& clip = triggerRows_[(size_t) dr.clipIndex];
+        const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
         juce::Colour fill, border;
         if (! clip.include)
         {
             fill = juce::Colour::fromRGB (0x1a, 0x1a, 0x1d);
             border = juce::Colour::fromRGB (0x2a, 0x2a, 0x31);
         }
-        else if (clip.timecodeHit)
+        else if (fired)
         {
             fill = juce::Colour::fromRGB (0xb0, 0x85, 0x00);
             border = juce::Colour::fromRGB (0xd4, 0xaa, 0x22);
@@ -991,8 +992,9 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
     juce::Colour textColour = juce::Colours::white.withAlpha (0.9f);
     if (columnId == 4)
     {
+        const bool fired = (currentTriggerKeys_.find ({ it.layer, it.clip }) != currentTriggerKeys_.end());
         if (! it.include) textColour = juce::Colour::fromRGB (0x53, 0x53, 0x5d);
-        else if (it.timecodeHit) textColour = juce::Colour::fromRGB (0x6a, 0x4e, 0x00);
+        else if (fired) textColour = juce::Colour::fromRGB (0x6a, 0x4e, 0x00);
         else if (it.connected) textColour = juce::Colour::fromRGB (0x1e, 0x4a, 0x2a);
         else textColour = juce::Colour::fromRGB (0x7a, 0x7a, 0x84);
     }
@@ -1017,9 +1019,10 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
         if (ed == nullptr)
             ed = new InlineTextCell();
 
+        const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
         juce::Colour textCol = juce::Colour::fromRGB (0xc0, 0xc0, 0xc0);
         if (! clip.include) textCol = juce::Colour::fromRGB (0x47, 0x47, 0x50);
-        else if (clip.timecodeHit) textCol = juce::Colour::fromRGB (0xff, 0xe0, 0x90);
+        else if (fired) textCol = juce::Colour::fromRGB (0xff, 0xe0, 0x90);
         else if (clip.connected) textCol = juce::Colour::fromRGB (0xb0, 0xe8, 0xa0);
         ed->setColour (juce::TextEditor::textColourId, textCol);
 
@@ -1106,7 +1109,11 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
             layerEnabled_[dr.layer] = newEnabled;
             for (auto& t : triggerRows_)
                 if (t.layer == dr.layer)
+                {
                     t.include = newEnabled;
+                    if (! newEnabled)
+                        currentTriggerKeys_.erase ({ t.layer, t.clip });
+                }
         }
         rebuildDisplayRows();
         triggerTable_.updateContent();
@@ -1120,6 +1127,8 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
     {
         auto& clip = triggerRows_[(size_t) dr.clipIndex];
         clip.include = ! clip.include;
+        if (! clip.include)
+            currentTriggerKeys_.erase ({ clip.layer, clip.clip });
         bool anyIncluded = false;
         for (const auto& t : triggerRows_)
             if (t.layer == clip.layer && t.include)
@@ -1385,11 +1394,9 @@ void TriggerContentComponent::refreshTriggerRows()
         if (auto it = prevByKey.find (key); it != prevByKey.end())
         {
             const auto& old = it->second;
+            // Keep local trigger configuration, but always refresh live clip data from Resolume.
             row.include = old.include;
-            row.name = old.name;
             row.triggerRangeSec = old.triggerRangeSec;
-            row.durationTc = old.durationTc;
-            row.triggerTc = old.triggerTc;
             row.endActionMode = old.endActionMode;
             row.endActionCol = old.endActionCol;
             row.endActionLayer = old.endActionLayer;
@@ -1397,6 +1404,18 @@ void TriggerContentComponent::refreshTriggerRows()
         }
         triggerRows_.push_back (row);
     }
+
+    {
+        std::set<std::pair<int, int>> valid;
+        for (const auto& t : triggerRows_)
+            valid.insert ({ t.layer, t.clip });
+        for (auto it = currentTriggerKeys_.begin(); it != currentTriggerKeys_.end();)
+        {
+            if (valid.find (*it) == valid.end()) it = currentTriggerKeys_.erase (it);
+            else ++it;
+        }
+    }
+
     rebuildDisplayRows();
     triggerTable_.updateContent();
     triggerTable_.repaint();
@@ -1559,6 +1578,14 @@ void TriggerContentComponent::evaluateAndFireTriggers()
             if (x.layer == t.layer)
                 x.connected = false;
         t.connected = true;
+
+        // Python parity: keep last fired clip highlighted (orange) per layer until next fire on that layer.
+        for (auto it = currentTriggerKeys_.begin(); it != currentTriggerKeys_.end();)
+        {
+            if (it->first == t.layer) it = currentTriggerKeys_.erase (it);
+            else ++it;
+        }
+        currentTriggerKeys_.insert ({ t.layer, t.clip });
     }
     triggerTable_.repaint();
 }

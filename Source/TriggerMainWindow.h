@@ -237,6 +237,7 @@ private:
     std::vector<DisplayRow> displayRows_;
     std::map<int, bool> layerExpanded_;
     std::map<int, bool> layerEnabled_;
+    std::set<std::pair<int, int>> currentTriggerKeys_;
     juce::Array<bridge::engine::AudioChoice> sourceLtcChoices_;
     std::map<std::pair<int, int>, bool> triggerRangeActive_;
     int lastInputFrames_ { 0 };

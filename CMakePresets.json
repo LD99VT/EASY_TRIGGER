@@ -11,7 +11,10 @@
       "displayName": "Windows MSVC x64",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
-      "binaryDir": "${sourceDir}/build/windows-msvc"
+      "binaryDir": "${sourceDir}/build/windows-msvc",
+      "cacheVariables": {
+        "ASIO_SDK_DIR": "$env{ASIO_SDK_DIR}"
+      }
     },
     {
       "name": "macos-universal",
@@ -36,4 +39,3 @@
     }
   ]
 }
-

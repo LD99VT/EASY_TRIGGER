@@ -10,11 +10,10 @@ namespace
 juce::Array<AudioChoice> scanAudioDevices (bool wantInputs)
 {
     juce::Array<AudioChoice> result;
-    juce::OwnedArray<juce::AudioIODeviceType> deviceTypes;
-    juce::AudioDeviceManager adm;
-    adm.createAudioDeviceTypes (deviceTypes);
+    juce::AudioDeviceManager tempMgr;
+    tempMgr.initialise (128, 128, nullptr, false);
 
-    for (auto* type : deviceTypes)
+    for (auto* type : tempMgr.getAvailableDeviceTypes())
     {
         if (type == nullptr)
             continue;

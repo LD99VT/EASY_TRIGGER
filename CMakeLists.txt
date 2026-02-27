@@ -16,6 +16,8 @@ FetchContent_MakeAvailable(juce)
 
 juce_add_gui_app(EasyTrigger
   PRODUCT_NAME "Easy Trigger v2"
+  MICROPHONE_PERMISSION_ENABLED TRUE
+  MICROPHONE_PERMISSION_TEXT "Easy Trigger requires audio input access for LTC input."
 )
 juce_generate_juce_header(EasyTrigger)
 
@@ -53,5 +55,18 @@ target_link_libraries(EasyTrigger PRIVATE
 )
 
 if(WIN32)
+  set(ASIO_SDK_DIR "$ENV{ASIO_SDK_DIR}" CACHE PATH "Path to Steinberg ASIO SDK root")
+  if(ASIO_SDK_DIR)
+    if(EXISTS "${ASIO_SDK_DIR}/common/asio.h" AND EXISTS "${ASIO_SDK_DIR}/host/asiodrivers.h")
+      target_compile_definitions(EasyTrigger PRIVATE JUCE_ASIO=1)
+      target_include_directories(EasyTrigger PRIVATE
+        "${ASIO_SDK_DIR}/common"
+        "${ASIO_SDK_DIR}/host"
+      )
+      message(STATUS "ASIO enabled for EasyTrigger from: ${ASIO_SDK_DIR}")
+    else()
+      message(WARNING "ASIO_SDK_DIR is set but required headers were not found in common/ and host/. ASIO disabled.")
+    endif()
+  endif()
   target_link_libraries(EasyTrigger PRIVATE ws2_32)
 endif()

@@ -1,0 +1,11 @@
+build/
+.vscode/
+.idea/
+*.user
+*.suo
+*.pdb
+*.obj
+*.ilk
+*.exp
+*.log
+.DS_Store

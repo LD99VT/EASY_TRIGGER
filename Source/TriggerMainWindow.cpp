@@ -694,6 +694,7 @@ private:
 
 TriggerContentComponent::TriggerContentComponent()
 {
+    ltcOutputApplyThread_ = std::thread ([this] { ltcOutputApplyLoop(); });
     setOpaque (true);
     loadFonts();
     applyTheme();
@@ -979,6 +980,15 @@ TriggerContentComponent::TriggerContentComponent()
 
 TriggerContentComponent::~TriggerContentComponent()
 {
+    {
+        const std::lock_guard<std::mutex> lock (ltcOutputApplyMutex_);
+        ltcOutputApplyExit_ = true;
+        ltcOutputApplyPending_ = false;
+    }
+    ltcOutputApplyCv_.notify_all();
+    if (ltcOutputApplyThread_.joinable())
+        ltcOutputApplyThread_.join();
+
     if (scanThread_ != nullptr && scanThread_->isThreadRunning())
         scanThread_->stopThread (2000);
     clipCollector_.stopListening();
@@ -2319,27 +2329,87 @@ void TriggerContentComponent::restartSelectedSource()
         bridgeEngine_.setInputSource (bridge::engine::InputSource::OSC);
 }
 
+void TriggerContentComponent::queueLtcOutputApply()
+{
+    const bool enabled = ltcOutSwitch_.getState();
+
+    const int selectedId = ltcOutDeviceCombo_.getSelectedId();
+    const int idx = selectedId > 0 ? selectedId - 1 : -1;
+    if (! juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
+    {
+        if (! enabled)
+            bridgeEngine_.setLtcOutputEnabled (false);
+        return;
+    }
+
+    {
+        const std::lock_guard<std::mutex> lock (ltcOutputApplyMutex_);
+        pendingLtcOutputChoice_ = outputChoices_[filteredOutputIndices_[idx]];
+        pendingLtcOutputChannel_ = comboChannelIndex (ltcOutChannelCombo_);
+        pendingLtcOutputSampleRate_ = comboSampleRate (ltcOutSampleRateCombo_);
+        pendingLtcOutputBufferSize_ = 256;
+        pendingLtcOutputEnabled_ = enabled;
+        ltcOutputApplyPending_ = true;
+    }
+
+    ltcOutputApplyCv_.notify_one();
+}
+
+void TriggerContentComponent::ltcOutputApplyLoop()
+{
+    auto safeThis = juce::Component::SafePointer<TriggerContentComponent> (this);
+
+    for (;;)
+    {
+        bridge::engine::AudioChoice choice;
+        int channel = 0;
+        double sampleRate = 0.0;
+        int bufferSize = 0;
+        bool enabled = false;
+
+        {
+            std::unique_lock<std::mutex> lock (ltcOutputApplyMutex_);
+            ltcOutputApplyCv_.wait (lock, [this] { return ltcOutputApplyExit_ || ltcOutputApplyPending_; });
+            if (ltcOutputApplyExit_)
+                break;
+
+            choice = pendingLtcOutputChoice_;
+            channel = pendingLtcOutputChannel_;
+            sampleRate = pendingLtcOutputSampleRate_;
+            bufferSize = pendingLtcOutputBufferSize_;
+            enabled = pendingLtcOutputEnabled_;
+            ltcOutputApplyPending_ = false;
+        }
+
+        juce::String err;
+        bridgeEngine_.startLtcOutput (choice, channel, sampleRate, bufferSize, err);
+        bridgeEngine_.setLtcOutputEnabled (enabled);
+
+        if (err.isNotEmpty())
+        {
+            juce::MessageManager::callAsync ([safeThis, err]
+            {
+                if (safeThis != nullptr)
+                    safeThis->setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+            });
+        }
+    }
+}
+
 void TriggerContentComponent::onOutputToggleChanged()
 {
-    bridgeEngine_.setLtcOutputEnabled (ltcOutSwitch_.getState());
+    if (ltcOutSwitch_.getState())
+    {
+        bridgeEngine_.setLtcOutputEnabled (true);
+        queueLtcOutputApply();
+    }
+    else
+        bridgeEngine_.setLtcOutputEnabled (false);
 }
 
 void TriggerContentComponent::onOutputSettingsChanged()
 {
-    juce::String err;
-    const int selectedId = ltcOutDeviceCombo_.getSelectedId();
-    const int idx = selectedId > 0 ? selectedId - 1 : -1;
-    if (juce::isPositiveAndBelow (idx, filteredOutputIndices_.size()))
-        bridgeEngine_.startLtcOutput (outputChoices_[filteredOutputIndices_[idx]],
-                                      comboChannelIndex (ltcOutChannelCombo_),
-                                      comboSampleRate (ltcOutSampleRateCombo_),
-                                      0,
-                                      err);
-
-    bridgeEngine_.setLtcOutputEnabled (ltcOutSwitch_.getState());
-
-    if (err.isNotEmpty())
-        setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+    queueLtcOutputApply();
 }
 
 void TriggerContentComponent::onInputSettingsChanged()
@@ -3181,6 +3251,3 @@ void MainWindow::quitFromTray()
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 } // namespace trigger
-
-
-

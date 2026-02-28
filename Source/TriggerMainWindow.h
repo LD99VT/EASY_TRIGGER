@@ -1,10 +1,13 @@
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <condition_variable>
 #include <cmath>
 #include <map>
+#include <mutex>
 #include <set>
 #include <atomic>
+#include <thread>
 
 #include "core/Timecode.h"
 #include "engine/BridgeEngine.h"
@@ -427,6 +430,8 @@ private:
     void applyTheme();
     void openHelpPage();
     void restartSelectedSource();
+    void queueLtcOutputApply();
+    void ltcOutputApplyLoop();
     void onInputSettingsChanged();
     void onOutputSettingsChanged();
     void onOutputToggleChanged();
@@ -610,6 +615,16 @@ private:
     juce::Viewport leftViewport_;
     juce::Component leftViewportContent_;
     std::unique_ptr<BridgeLookAndFeel> lookAndFeel_;
+    std::thread ltcOutputApplyThread_;
+    std::mutex ltcOutputApplyMutex_;
+    std::condition_variable ltcOutputApplyCv_;
+    bool ltcOutputApplyExit_ { false };
+    bool ltcOutputApplyPending_ { false };
+    bridge::engine::AudioChoice pendingLtcOutputChoice_;
+    int pendingLtcOutputChannel_ { 0 };
+    double pendingLtcOutputSampleRate_ { 0.0 };
+    int pendingLtcOutputBufferSize_ { 0 };
+    bool pendingLtcOutputEnabled_ { false };
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };
     juce::Colour row_ { juce::Colour::fromRGB (0x3a, 0x3a, 0x3a) };

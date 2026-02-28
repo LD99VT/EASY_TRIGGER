@@ -36,10 +36,6 @@ bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String
     lastPacketTsMs_.store (0.0, std::memory_order_relaxed);
     lastStringTsMs_.store (0.0, std::memory_order_relaxed);
     bindFellBack_.store (false, std::memory_order_relaxed);
-    debugEnabled_ = true;
-    debugLog_ = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                    .getChildFile ("easybridge_osc_debug.log");
-    debugLog_.appendText ("\n=== OSC start bind " + bindIp_ + ":" + juce::String (port) + " str=" + addrStr_ + " float=" + addrFloat_ + " ===\n");
 
     socket_ = std::make_unique<juce::DatagramSocket> (false);
     bool bound = false;
@@ -61,14 +57,12 @@ bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String
     {
         socket_.reset();
         errorOut = "Failed to bind OSC " + bindIp_ + ":" + juce::String (port);
-        debugLog_.appendText ("bind failed\n");
         return false;
     }
 
     bindFellBack_.store (fellBack, std::memory_order_relaxed);
     running_.store (true, std::memory_order_relaxed);
     startThread();
-    debugLog_.appendText ("bind ok, thread started\n");
     errorOut.clear();
     return true;
 }
@@ -121,15 +115,6 @@ void OscInput::run()
         if (bytesRead <= 0)
             continue;
 
-        if (debugEnabled_)
-        {
-            const auto now = juce::Time::getMillisecondCounterHiRes();
-            if ((now - lastDebugPacketTsMs_) > 100.0)
-            {
-                debugLog_.appendText ("udp packet bytes=" + juce::String (bytesRead) + "\n");
-                lastDebugPacketTsMs_ = now;
-            }
-        }
         parsePacket (packet, bytesRead, 0);
     }
 }
@@ -494,8 +479,6 @@ void OscInput::commit (int h, int m, int s, int f, bool rememberStringTs)
     lastPacketTsMs_.store (now, std::memory_order_relaxed);
     if (rememberStringTs)
         lastStringTsMs_.store (now, std::memory_order_relaxed);
-    if (debugEnabled_)
-        debugLog_.appendText ("tc " + juce::String (h) + ":" + juce::String (m) + ":" + juce::String (s) + ":" + juce::String (f) + "\n");
 }
 
 bool OscInput::isStringSuppressed() const

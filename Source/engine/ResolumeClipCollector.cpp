@@ -37,15 +37,6 @@ double resolumeDurationToSeconds (double raw)
     return v;
 }
 
-void logResolume (const juce::String& line)
-{
-    static juce::CriticalSection cs;
-    const juce::ScopedLock sl (cs);
-    auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
-    auto file = exeDir.getChildFile ("easytrigger_resolume.log");
-    const auto text = juce::Time::getCurrentTime().toString (true, true) + " | " + line + "\n";
-    file.appendText (text, false, false, "\n");
-}
 }
 
 ResolumeClipCollector::ResolumeClipCollector()
@@ -63,14 +54,11 @@ bool ResolumeClipCollector::startListening (const juce::String& listenIp, int li
 {
     juce::ignoreUnused (listenIp);
     stopListening();
-    logResolume ("LISTEN start ip=" + listenIp + " port=" + juce::String (listenPort));
     if (! connect (listenPort))
     {
         errorOut = "Resolume listen failed";
-        logResolume ("LISTEN FAILED");
         return false;
     }
-    logResolume ("LISTEN OK");
     return true;
 }
 
@@ -82,15 +70,12 @@ void ResolumeClipCollector::stopListening()
 bool ResolumeClipCollector::configureSender (const juce::String& sendIp, int sendPort, juce::String& errorOut)
 {
     sender_.disconnect();
-    logResolume ("SEND connect ip=" + sendIp + " port=" + juce::String (sendPort));
     senderReady_ = sender_.connect (sendIp, sendPort);
     if (! senderReady_)
     {
         errorOut = "Resolume send failed";
-        logResolume ("SEND CONNECT FAILED");
         return false;
     }
-    logResolume ("SEND CONNECT OK");
     return true;
 }
 
@@ -98,7 +83,6 @@ void ResolumeClipCollector::queryClips (int maxLayers, int maxClips)
 {
     if (! senderReady_)
     {
-        logResolume ("QUERY skipped: sender not ready");
         return;
     }
 
@@ -110,7 +94,6 @@ void ResolumeClipCollector::queryClips (int maxLayers, int maxClips)
         juce::OSCMessage plain (addr);
         const bool okQ = sender_.send (q);
         const bool okPlain = sender_.send (plain);
-        logResolume ("OUT " + addr + " q=" + juce::String (okQ ? "1" : "0") + " plain=" + juce::String (okPlain ? "1" : "0"));
     };
 
     for (int layer = 1; layer <= juce::jlimit (1, 64, maxLayers); ++layer)
@@ -163,7 +146,6 @@ void ResolumeClipCollector::oscMessageReceived (const juce::OSCMessage& msg)
 
 void ResolumeClipCollector::oscBundleReceived (const juce::OSCBundle& bundle)
 {
-    logResolume ("IN BUNDLE size=" + juce::String ((int) std::distance (bundle.begin(), bundle.end())));
     for (const auto& element : bundle)
     {
         if (element.isMessage())
@@ -179,12 +161,8 @@ void ResolumeClipCollector::oscBundleReceived (const juce::OSCBundle& bundle)
 
 void ResolumeClipCollector::handleMessage (const juce::OSCMessage& msg)
 {
-    static std::atomic<int> sInCount { 0 };
     std::smatch m;
     const auto addr = msg.getAddressPattern().toString().toStdString();
-    const int in = ++sInCount;
-    if (in <= 300)
-        logResolume ("IN " + juce::String (msg.getAddressPattern().toString()));
 
     if (std::regex_match (addr, m, kLayerNameRe) && m.size() >= 2)
     {
@@ -254,8 +232,6 @@ void ResolumeClipCollector::handleMessage (const juce::OSCMessage& msg)
         return;
     }
 
-    if (in <= 300)
-        logResolume ("IN unhandled");
 }
 
 void ResolumeClipCollector::touchClip (int layer, int clip)

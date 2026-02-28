@@ -383,6 +383,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseUp (const juce::MouseEvent& event) override;
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
     bool closeToTrayEnabled() const noexcept { return closeToTray_; }
 
 private:
@@ -459,6 +461,9 @@ private:
     void sendTestTrigger (int layer, int clip);
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
+    void setTimecodeStatusText (const juce::String& text, juce::Colour colour);
+    void setResolumeStatusText (const juce::String& text, juce::Colour colour);
+    void openStatusMonitorWindow();
 
     bridge::engine::BridgeEngine bridgeEngine_;
     trigger::engine::ResolumeClipCollector clipCollector_;
@@ -501,6 +506,7 @@ private:
     HelpCircleButton helpButton_;
     juce::Label tcLabel_ { {}, "00:00:00:00" };
     juce::Label fpsLabel_ { {}, "TC FPS: --" };
+    juce::Label resolumeStatusLabel_ { {}, "Resolume idle" };
     juce::Label statusLabel_ { {}, "STOPPED" };
     juce::Label sourceHeaderLabel_ { {}, "Source" };
     juce::Label outLtcHeaderLabel_ { {}, "Out LTC" };
@@ -539,6 +545,7 @@ private:
     juce::Label resListenPortLbl_ { {}, "Listen port:" };
     juce::Label resMaxLayersLbl_ { {}, "Max layers:" };
     juce::Label resMaxClipsLbl_ { {}, "Max clips:" };
+    juce::Label resGlobalOffsetLbl_ { {}, "Global offset:" };
 
     juce::ComboBox sourceCombo_;
     juce::ComboBox ltcInDriverCombo_;
@@ -572,6 +579,7 @@ private:
     juce::TextEditor resolumeListenPort_;
     juce::TextEditor resolumeMaxLayers_;
     juce::TextEditor resolumeMaxClips_;
+    juce::TextEditor resolumeGlobalOffset_;
     juce::TextButton getTriggersBtn_ { "Get Triggers" };
     juce::TextButton settingsButton_ { "Settings" };
     juce::TextButton quitButton_ { "Quit" };
@@ -583,6 +591,12 @@ private:
     juce::Rectangle<int> headerRect_;
     juce::Rectangle<int> timerRect_;
     juce::Rectangle<int> statusBarRect_;
+    juce::Rectangle<int> statusLeftRect_;
+    juce::Rectangle<int> statusRightRect_;
+    juce::Rectangle<int> leftViewportRect_;
+    juce::ScrollBar leftScrollBar_ { false };
+    int leftScrollOffset_ { 0 };
+    int leftScrollContentHeight_ { 0 };
     std::unique_ptr<BridgeLookAndFeel> lookAndFeel_;
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };

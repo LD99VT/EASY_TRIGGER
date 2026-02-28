@@ -142,6 +142,39 @@ int offsetFromEditor (const juce::TextEditor& editor)
     return juce::jlimit (-30, 30, editor.getText().getIntValue());
 }
 
+int globalOffsetFramesFromEditor (const juce::TextEditor& editor, int fps)
+{
+    auto text = editor.getText().trim();
+    if (text.isEmpty())
+        return 0;
+
+    int sign = 1;
+    if (text.startsWithChar ('-'))
+    {
+        sign = -1;
+        text = text.fromFirstOccurrenceOf ("-", false, false).trim();
+    }
+    else if (text.startsWithChar ('+'))
+    {
+        text = text.fromFirstOccurrenceOf ("+", false, false).trim();
+    }
+
+    juce::StringArray p;
+    p.addTokens (text, ":", "");
+    p.removeEmptyStrings();
+    if (p.size() != 4)
+        return 0;
+
+    const int hh = p[0].getIntValue();
+    const int mm = p[1].getIntValue();
+    const int ss = p[2].getIntValue();
+    const int ff = p[3].getIntValue();
+    if (hh < 0 || mm < 0 || mm > 59 || ss < 0 || ss > 59 || ff < 0 || ff >= fps)
+        return 0;
+
+    return sign * ((((hh * 60) + mm) * 60 + ss) * fps + ff);
+}
+
 #if JUCE_WINDOWS
 void applyNativeDarkTitleBar (juce::DocumentWindow& window)
 {
@@ -209,14 +242,6 @@ juce::File findUiBaseDirFromExe()
     }
 
     return {};
-}
-
-void logUi (const juce::String& line)
-{
-    auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
-    auto file = exeDir.getChildFile ("easytrigger_ui.log");
-    const auto text = juce::Time::getCurrentTime().toString (true, true) + " | " + line + "\n";
-    file.appendText (text, false, false, "\n");
 }
 
 juce::Image loadTriggerAppIcon()
@@ -698,8 +723,9 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeSendPort_.setText ("7000");
     resolumeListenIp_.setText ("0.0.0.0");
     resolumeListenPort_.setText ("7001");
-    resolumeMaxLayers_.setText ("12");
+    resolumeMaxLayers_.setText ("4");
     resolumeMaxClips_.setText ("32");
+    resolumeGlobalOffset_.setText ("00:00:00:00");
     getTriggersBtn_.onClick = [this] { queryResolume(); };
     resolumeExpandBtn_.setExpanded (false);
     helpButton_.onClick = [this] { openHelpPage(); };
@@ -764,6 +790,7 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (helpButton_);
     addAndMakeVisible (tcLabel_);
     addAndMakeVisible (fpsLabel_);
+    addAndMakeVisible (resolumeStatusLabel_);
     addAndMakeVisible (statusLabel_);
     addAndMakeVisible (resolumeHeader_);
     addAndMakeVisible (resolumeExpandBtn_);
@@ -773,12 +800,14 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (resListenPortLbl_);
     addAndMakeVisible (resMaxLayersLbl_);
     addAndMakeVisible (resMaxClipsLbl_);
+    addAndMakeVisible (resGlobalOffsetLbl_);
     addAndMakeVisible (resolumeSendIp_);
     addAndMakeVisible (resolumeSendPort_);
     addAndMakeVisible (resolumeListenIp_);
     addAndMakeVisible (resolumeListenPort_);
     addAndMakeVisible (resolumeMaxLayers_);
     addAndMakeVisible (resolumeMaxClips_);
+    addAndMakeVisible (resolumeGlobalOffset_);
     addAndMakeVisible (getTriggersBtn_);
     addAndMakeVisible (settingsButton_);
     addAndMakeVisible (quitButton_);
@@ -786,7 +815,8 @@ TriggerContentComponent::TriggerContentComponent()
 
     setSize (1240, 820);
     resized();
-    statusLabel_.setText ("SAFE START", juce::dontSendNotification);
+    setResolumeStatusText ("Resolume idle", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    setTimecodeStatusText ("SAFE START", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
     loadRuntimePrefs();
     startAudioDeviceScan();
     startTimerHz (60);
@@ -907,6 +937,12 @@ void TriggerContentComponent::resized()
     timerRect_ = {};
     auto bounds = getLocalBounds();
     statusBarRect_ = bounds.removeFromBottom (24);
+    statusLeftRect_ = statusBarRect_;
+    statusRightRect_ = {};
+    if (! statusBarRect_.isEmpty())
+    {
+        statusRightRect_ = statusLeftRect_.removeFromRight (juce::jmax (260, statusBarRect_.getWidth() / 2));
+    }
     auto content = bounds.reduced (8);
     const int totalW = content.getWidth();
     int leftW = juce::jlimit (330, 390, (int) std::round ((double) totalW * 0.40));
@@ -933,6 +969,11 @@ void TriggerContentComponent::resized()
     tcLabel_.setBounds (timerRect_);
     fpsLabel_.setBounds (left.removeFromTop (22));
     left.removeFromTop (4);
+
+    auto footerArea = left.removeFromBottom (84);
+    auto actionRow = footerArea.removeFromBottom (40);
+    footerArea.removeFromBottom (4);
+    auto getTriggersRow = footerArea.removeFromBottom (40);
 
     auto row = [&left, this] (int h = 40)
     {
@@ -1023,6 +1064,7 @@ void TriggerContentComponent::resized()
         layoutParam (resListenPortLbl_, resolumeListenPort_);
         layoutParam (resMaxLayersLbl_, resolumeMaxLayers_);
         layoutParam (resMaxClipsLbl_, resolumeMaxClips_);
+        layoutParam (resGlobalOffsetLbl_, resolumeGlobalOffset_);
     }
 
     auto ltcHeader = row();
@@ -1122,16 +1164,15 @@ void TriggerContentComponent::resized()
     resListenPortLbl_.setVisible (resolumeExpanded_);
     resMaxLayersLbl_.setVisible (resolumeExpanded_);
     resMaxClipsLbl_.setVisible (resolumeExpanded_);
+    resGlobalOffsetLbl_.setVisible (resolumeExpanded_);
     resolumeSendIp_.setVisible (resolumeExpanded_);
     resolumeSendPort_.setVisible (resolumeExpanded_);
     resolumeListenIp_.setVisible (resolumeExpanded_);
     resolumeListenPort_.setVisible (resolumeExpanded_);
     resolumeMaxLayers_.setVisible (resolumeExpanded_);
     resolumeMaxClips_.setVisible (resolumeExpanded_);
+    resolumeGlobalOffset_.setVisible (resolumeExpanded_);
 
-    auto actionRow = left.removeFromBottom (40);
-    left.removeFromBottom (4);
-    auto getTriggersRow = left.removeFromBottom (40);
     if (! left.isEmpty())
         rightSectionRects_.add (left);
 
@@ -1142,14 +1183,18 @@ void TriggerContentComponent::resized()
     settingsButton_.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
     quitButton_.setBounds (buttons.reduced (1, 0));
 
-    statusLabel_.setBounds (statusBarRect_);
+    resolumeStatusLabel_.setBounds (statusLeftRect_.reduced (8, 0));
+    statusLabel_.setBounds (statusRightRect_.reduced (8, 0));
 
     rightSectionRects_.add (right);
     triggerTable_.setBounds (right.reduced (3));
     updateTableColumnWidths();
-    logUi ("resized window=" + getLocalBounds().toString()
-           + " leftW=" + juce::String (left.getWidth())
-           + " right=" + triggerTable_.getBounds().toString());
+}
+
+void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
+{
+    if (statusBarRect_.contains (event.getPosition()))
+        openStatusMonitorWindow();
 }
 
 void TriggerContentComponent::updateTableColumnWidths()
@@ -1260,11 +1305,18 @@ void TriggerContentComponent::timerCallback()
         }
     }
     evaluateAndFireTriggers();
-    const int rxCount = (int) clipCollector_.snapshot().size();
-    statusLabel_.setText ((st.hasInputTc ? "RUNNING" : "STOPPED - no timecode")
-                          + juce::String (" | LTC ") + st.ltcOutStatus
-                          + juce::String (" | RX clips: ") + juce::String (rxCount),
-                          juce::dontSendNotification);
+    const auto clips = clipCollector_.snapshot();
+    int maxLayer = 0;
+    for (const auto& c : clips)
+        maxLayer = juce::jmax (maxLayer, c.layer);
+
+    setTimecodeStatusText ((st.hasInputTc ? "RUNNING" : "STOPPED - no timecode")
+                           + juce::String (" | LTC ") + st.ltcOutStatus,
+                           st.hasInputTc ? juce::Colour::fromRGB (0x71, 0xd1, 0x7a)
+                                         : juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    setResolumeStatusText ("Resolume | Layers: " + juce::String (maxLayer)
+                           + " | Clips: " + juce::String ((int) clips.size()),
+                           juce::Colour::fromRGB (0xff, 0x78, 0x6e));
 }
 
 int TriggerContentComponent::getNumRows()
@@ -1643,12 +1695,12 @@ void TriggerContentComponent::applyTheme()
         e.setJustification (juce::Justification::centredLeft);
         e.setIndents (8, 0);
     };
-    for (auto* e : { &resolumeSendIp_, &resolumeSendPort_, &resolumeListenIp_, &resolumeListenPort_, &resolumeMaxLayers_, &resolumeMaxClips_ })
+    for (auto* e : { &resolumeSendIp_, &resolumeSendPort_, &resolumeListenIp_, &resolumeListenPort_, &resolumeMaxLayers_, &resolumeMaxClips_, &resolumeGlobalOffset_ })
     {
         styleEditor (*e);
     }
     for (auto* l : { &resolumeHeader_,
-                     &resSendIpLbl_, &resSendPortLbl_, &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_ })
+                     &resSendIpLbl_, &resSendPortLbl_, &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_, &resGlobalOffsetLbl_ })
     {
         l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
         l->setJustificationType (juce::Justification::centredLeft);
@@ -1659,8 +1711,12 @@ void TriggerContentComponent::applyTheme()
         h->setFont (juce::FontOptions (14.0f));
         h->setJustificationType (juce::Justification::centredLeft);
     }
-    statusLabel_.setColour (juce::Label::backgroundColourId, row_);
+    resolumeStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    resolumeStatusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    statusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    resolumeStatusLabel_.setJustificationType (juce::Justification::centredLeft);
+    statusLabel_.setJustificationType (juce::Justification::centredRight);
     getTriggersBtn_.setColour (juce::TextButton::buttonColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
@@ -1740,8 +1796,6 @@ void TriggerContentComponent::refreshTriggerRows()
     rebuildDisplayRows();
     triggerTable_.updateContent();
     triggerTable_.repaint();
-    logUi ("refreshTriggerRows clips=" + juce::String ((int) clips.size())
-           + " rows=" + juce::String ((int) triggerRows_.size()));
 }
 
 void TriggerContentComponent::updateClipCountdowns()
@@ -1763,6 +1817,7 @@ void TriggerContentComponent::updateClipCountdowns()
     int currentFrames = 0;
     if (! parseTcToFrames (currentTc, fps, currentFrames))
         return;
+    currentFrames -= globalOffsetFramesFromEditor (resolumeGlobalOffset_, fps);
 
     for (auto& t : triggerRows_)
     {
@@ -1794,6 +1849,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
     int currentFrames = 0;
     if (! parseTcToFrames (currentTc, fps, currentFrames))
         return;
+    currentFrames -= globalOffsetFramesFromEditor (resolumeGlobalOffset_, fps);
 
     if (! hasLastInputFrames_)
     {
@@ -1944,7 +2000,7 @@ void TriggerContentComponent::onOutputSettingsChanged()
     bridgeEngine_.setLtcOutputEnabled (ltcOutSwitch_.getState());
 
     if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
+        setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
 }
 
 void TriggerContentComponent::onInputSettingsChanged()
@@ -1987,7 +2043,7 @@ void TriggerContentComponent::onInputSettingsChanged()
     restartSelectedSource();
 
     if (err.isNotEmpty())
-        statusLabel_.setText (err, juce::dontSendNotification);
+        setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
 }
 
 void TriggerContentComponent::startAudioDeviceScan()
@@ -2221,6 +2277,36 @@ bool TriggerContentComponent::parseTcToFrames (const juce::String& tc, int fps, 
     return true;
 }
 
+void TriggerContentComponent::setTimecodeStatusText (const juce::String& text, juce::Colour colour)
+{
+    statusLabel_.setText (text, juce::dontSendNotification);
+    statusLabel_.setColour (juce::Label::textColourId, colour);
+}
+
+void TriggerContentComponent::setResolumeStatusText (const juce::String& text, juce::Colour colour)
+{
+    resolumeStatusLabel_.setText (text, juce::dontSendNotification);
+    resolumeStatusLabel_.setColour (juce::Label::textColourId, colour);
+}
+
+void TriggerContentComponent::openStatusMonitorWindow()
+{
+    juce::String details;
+    details << "Source: " << sourceCombo_.getText() << "\n";
+    details << "Input TC: " << tcLabel_.getText() << " (" << fpsLabel_.getText().fromFirstOccurrenceOf (": ", false, false) << ")\n";
+    details << "LTC Out: " << (ltcOutSwitch_.getState() ? "ON" : "OFF") << " | device: " << ltcOutDeviceCombo_.getText() << "\n";
+    details << "LTC Thru: " << (ltcThruDot_.getState() ? "ON" : "OFF") << "\n";
+    details << "MTC In: " << mtcInCombo_.getText() << "\n";
+    details << "ArtNet In: " << artnetInCombo_.getText() << " | " << artnetListenIpEditor_.getText() << "\n";
+    details << "OSC Listen: " << oscIpEditor_.getText() << ":" << oscPortEditor_.getText() << "\n";
+    details << "Timecode Status: " << statusLabel_.getText() << "\n";
+    details << "Resolume Status: " << resolumeStatusLabel_.getText();
+
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                            "Trigger Status Monitor",
+                                            details);
+}
+
 void TriggerContentComponent::sendTestTrigger (int layer, int clip)
 {
     if (layer < 1 || clip < 1)
@@ -2273,26 +2359,18 @@ void TriggerContentComponent::queryResolume()
     const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "0.0.0.0";
     if (! clipCollector_.startListening (listenIp, juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()), err))
     {
-        statusLabel_.setText (err, juce::dontSendNotification);
-        logUi ("queryResolume listen failed: " + err);
+        setResolumeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
         return;
     }
     const auto sendIp = resolumeSendIp_.getText().trim().isNotEmpty() ? resolumeSendIp_.getText().trim() : "127.0.0.1";
     if (! clipCollector_.configureSender (sendIp, juce::jlimit (1, 65535, resolumeSendPort_.getText().getIntValue()), err))
     {
-        statusLabel_.setText (err, juce::dontSendNotification);
-        logUi ("queryResolume sender failed: " + err);
+        setResolumeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
         return;
     }
     clipCollector_.queryClips (juce::jlimit (1, 64, resolumeMaxLayers_.getText().getIntValue()),
                                juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue()));
-    statusLabel_.setText ("Resolume query sent", juce::dontSendNotification);
-    logUi ("queryResolume sent listenIp=" + listenIp
-           + " listenPort=" + resolumeListenPort_.getText().trim()
-           + " sendIp=" + sendIp
-           + " sendPort=" + resolumeSendPort_.getText().trim()
-           + " maxLayers=" + resolumeMaxLayers_.getText().trim()
-           + " maxClips=" + resolumeMaxClips_.getText().trim());
+    setResolumeStatusText ("Resolume query sent", juce::Colour::fromRGB (0x71, 0xd1, 0x7a));
 }
 
 void TriggerContentComponent::openSettingsMenu()
@@ -2327,19 +2405,19 @@ void TriggerContentComponent::openSettingsMenu()
                              case 6: safe->loadConfigFrom (kConfigModeAll); break;
                              case 7:
                                  safe->startAudioDeviceScan();
-                                 safe->statusLabel_.setText ("Audio devices rescanned", juce::dontSendNotification);
+                                 safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
                                  break;
                              case 8:
                                  safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
                                  safe->saveRuntimePrefs();
-                                 safe->statusLabel_.setText (safe->autoLoadOnStartup_ ? "Load on startup ON" : "Load on startup OFF",
-                                                             juce::dontSendNotification);
+                                 safe->setTimecodeStatusText (safe->autoLoadOnStartup_ ? "Load on startup ON" : "Load on startup OFF",
+                                                              juce::Colour::fromRGB (0xff, 0x78, 0x6e));
                                  break;
                              case 9:
                                  safe->closeToTray_ = ! safe->closeToTray_;
                                  safe->saveRuntimePrefs();
-                                 safe->statusLabel_.setText (safe->closeToTray_ ? "Close to tray ON" : "Close to tray OFF",
-                                                             juce::dontSendNotification);
+                                 safe->setTimecodeStatusText (safe->closeToTray_ ? "Close to tray ON" : "Close to tray OFF",
+                                                              juce::Colour::fromRGB (0xff, 0x78, 0x6e));
                                  break;
                              default:
                                  break;
@@ -2475,6 +2553,7 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
         leftObj->setProperty ("res_listen_port", resolumeListenPort_.getText());
         leftObj->setProperty ("res_max_layers", resolumeMaxLayers_.getText());
         leftObj->setProperty ("res_max_clips", resolumeMaxClips_.getText());
+        leftObj->setProperty ("res_global_offset", resolumeGlobalOffset_.getText());
         rootObj->setProperty ("left", juce::var (leftObj));
     }
 
@@ -2505,11 +2584,11 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
     {
         lastConfigFile_ = file;
         saveRuntimePrefs();
-        statusLabel_.setText ("Config saved: " + file.getFileName(), juce::dontSendNotification);
+        setTimecodeStatusText ("Config saved: " + file.getFileName(), juce::Colour::fromRGB (0xff, 0x78, 0x6e));
     }
     else
     {
-        statusLabel_.setText ("Failed to save config", juce::dontSendNotification);
+        setTimecodeStatusText ("Failed to save config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
     }
 }
 
@@ -2518,7 +2597,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
     auto parsed = bridge::core::ConfigStore::loadJsonFile (file);
     if (! parsed.has_value() || ! parsed->isObject())
     {
-        statusLabel_.setText ("Invalid config", juce::dontSendNotification);
+        setTimecodeStatusText ("Invalid config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
         return;
     }
 
@@ -2578,6 +2657,10 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
             resolumeListenPort_.setText (leftObj->getProperty ("res_listen_port").toString(), juce::dontSendNotification);
             resolumeMaxLayers_.setText (leftObj->getProperty ("res_max_layers").toString(), juce::dontSendNotification);
             resolumeMaxClips_.setText (leftObj->getProperty ("res_max_clips").toString(), juce::dontSendNotification);
+            resolumeGlobalOffset_.setText (leftObj->hasProperty ("res_global_offset")
+                                               ? leftObj->getProperty ("res_global_offset").toString()
+                                               : juce::String ("00:00:00:00"),
+                                           juce::dontSendNotification);
 
             sourceExpandBtn_.setExpanded (sourceExpanded_);
             outLtcExpandBtn_.setExpanded (outLtcExpanded_);
@@ -2622,7 +2705,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
     resized();
     lastConfigFile_ = file;
     saveRuntimePrefs();
-    statusLabel_.setText ("Config loaded: " + file.getFileName(), juce::dontSendNotification);
+    setTimecodeStatusText ("Config loaded: " + file.getFileName(), juce::Colour::fromRGB (0xff, 0x78, 0x6e));
 }
 
 juce::String TriggerContentComponent::secondsToTc (double sec, FrameRate fps)

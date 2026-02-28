@@ -26,6 +26,9 @@ void TriggerApplication::shutdown()
 
 void TriggerApplication::systemRequestedQuit()
 {
+    if (mainWindow_ != nullptr)
+        mainWindow_->prepareForShutdown();
+
     quit();
 }
 

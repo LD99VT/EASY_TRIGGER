@@ -1,5 +1,6 @@
 #include "TriggerMainWindow.h"
 #include "core/BridgeVersion.h"
+#include "core/ConfigStore.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -15,6 +16,16 @@ namespace trigger
 namespace
 {
 constexpr int kPlaceholderItemId = 10000;
+constexpr int kConfigModeSettings = 1;
+constexpr int kConfigModeClips = 2;
+constexpr int kConfigModeAll = 3;
+
+juce::String configModeKey (int modeId)
+{
+    if (modeId == kConfigModeSettings) return "settings";
+    if (modeId == kConfigModeClips) return "clips";
+    return "all";
+}
 
 juce::String parseBindIpFromAdapterLabel (juce::String text)
 {
@@ -225,6 +236,46 @@ juce::Image loadTriggerAppIcon()
         return {};
     return juce::ImageFileFormat::loadFrom (*in);
 }
+
+juce::File getRuntimePrefsFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("EasyTrigger")
+        .getChildFile ("runtime_prefs.json");
+}
+
+class TriggerTrayIcon final : public juce::SystemTrayIconComponent
+{
+public:
+    explicit TriggerTrayIcon (MainWindow& owner) : owner_ (owner) {}
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown())
+        {
+            juce::PopupMenu menu;
+            menu.addItem (1, "Show");
+            menu.addSeparator();
+            menu.addItem (2, "Quit");
+            menu.showMenuAsync (juce::PopupMenu::Options(),
+                                [safeOwner = juce::Component::SafePointer<MainWindow> (&owner_)] (int result)
+                                {
+                                    if (safeOwner == nullptr)
+                                        return;
+                                    if (result == 1)
+                                        safeOwner->showFromTray();
+                                    else if (result == 2)
+                                        safeOwner->quitFromTray();
+                                });
+            return;
+        }
+
+        owner_.showFromTray();
+    }
+
+private:
+    MainWindow& owner_;
+};
 
 class InlineTextCell final : public juce::TextEditor
 {
@@ -653,12 +704,35 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeExpandBtn_.setExpanded (false);
     helpButton_.onClick = [this] { openHelpPage(); };
     resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); updateWindowHeight(); resized(); repaint(); };
+    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+    settingsButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    settingsButton_.onClick = [this] { openSettingsMenu(); };
+    quitButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
+    quitButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
+    quitButton_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    quitButton_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    quitButton_.onClick = [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
+    {
+        if (safe == nullptr)
+            return;
+
+        if (auto* window = safe->findParentComponentOfClass<MainWindow>())
+            window->quitFromTray();
+        else
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+    };
 
     triggerTable_.setModel (this);
     triggerTable_.setRowHeight (36);
     triggerTable_.setOutlineThickness (0);
     triggerTable_.setColour (juce::ListBox::outlineColourId, juce::Colour::fromRGB (0x3f, 0x3f, 0x3f));
     triggerTable_.setColour (juce::ListBox::backgroundColourId, bg_);
+    triggerTable_.getHorizontalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0xb0, 0xb0, 0xb0));
+    triggerTable_.getHorizontalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
+    triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0xb0, 0xb0, 0xb0));
+    triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
     auto& h = triggerTable_.getHeader();
     h.addColumn ("", 1, 40);
     h.addColumn ("In", 2, 46);
@@ -668,7 +742,7 @@ TriggerContentComponent::TriggerContentComponent()
     h.addColumn ("Trigger", 6, 110);
     h.addColumn ("Duration", 7, 110);
     h.addColumn ("End Action", 8, 180);
-    h.addColumn ("Test", 9, 56);
+    h.addColumn ("Test", 9, 56, 56, 56, juce::TableHeaderComponent::notResizable);
     h.setStretchToFitActive (false);
     h.setColour (juce::TableHeaderComponent::backgroundColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
     h.setColour (juce::TableHeaderComponent::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
@@ -706,11 +780,14 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (resolumeMaxLayers_);
     addAndMakeVisible (resolumeMaxClips_);
     addAndMakeVisible (getTriggersBtn_);
+    addAndMakeVisible (settingsButton_);
+    addAndMakeVisible (quitButton_);
     addAndMakeVisible (triggerTable_);
 
     setSize (1240, 820);
     resized();
     statusLabel_.setText ("SAFE START", juce::dontSendNotification);
+    loadRuntimePrefs();
     startAudioDeviceScan();
     startTimerHz (60);
 }
@@ -720,6 +797,7 @@ TriggerContentComponent::~TriggerContentComponent()
     if (scanThread_ != nullptr && scanThread_->isThreadRunning())
         scanThread_->stopThread (2000);
     clipCollector_.stopListening();
+    juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
 }
 
@@ -757,6 +835,7 @@ int TriggerContentComponent::calcHeightForState (bool sourceExpanded, int source
     if (resolumeExpanded)
         addRows (6);
 
+    h += 40 + 4;
     h += 40 + 4;
     h += 24 + 4;
     h += 8;
@@ -1050,17 +1129,18 @@ void TriggerContentComponent::resized()
     resolumeMaxLayers_.setVisible (resolumeExpanded_);
     resolumeMaxClips_.setVisible (resolumeExpanded_);
 
+    auto actionRow = left.removeFromBottom (40);
+    left.removeFromBottom (4);
     auto getTriggersRow = left.removeFromBottom (40);
     if (! left.isEmpty())
         rightSectionRects_.add (left);
 
-    auto buttonBounds = getTriggersRow.reduced (8, 3);
-    if (buttonBounds.getHeight() < 34)
-        buttonBounds = getTriggersRow.withTrimmedLeft (8).withTrimmedRight (8)
-                                      .withSizeKeepingCentre (juce::jmax (40, getTriggersRow.getWidth() - 16), 34);
-
-    getTriggersBtn_.setBounds (buttonBounds);
+    getTriggersBtn_.setBounds (getTriggersRow);
     getTriggersBtn_.setVisible (true);
+
+    auto buttons = actionRow;
+    settingsButton_.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
+    quitButton_.setBounds (buttons.reduced (1, 0));
 
     statusLabel_.setBounds (statusBarRect_);
 
@@ -1090,13 +1170,13 @@ void TriggerContentComponent::updateTableColumnWidths()
 
     std::array<Col, 9> cols {{
         { 1, 34, 30 },   // arrow
-        { 2, 40, 36 },   // in
-        { 3, 210, 160 }, // name
-        { 4, 100, 90 },  // count
-        { 5, 68, 62 },   // range
-        { 6, 104, 96 },  // trigger
-        { 7, 104, 96 },  // duration
-        { 8, 170, 144 }, // end action
+        { 2, 38, 34 },   // in
+        { 3, 186, 150 }, // name
+        { 4, 96, 84 },   // count
+        { 5, 64, 58 },   // range
+        { 6, 98, 88 },   // trigger
+        { 7, 98, 88 },   // duration
+        { 8, 160, 136 }, // end action
         { 9, 48, 44 }    // test
     }};
 
@@ -1210,38 +1290,32 @@ void TriggerContentComponent::paintRowBackground (juce::Graphics& g, int row, in
     {
         const auto& clip = triggerRows_[(size_t) dr.clipIndex];
         const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
-        juce::Colour fill, border;
+        juce::Colour fill;
         if (! clip.include)
         {
-            fill = juce::Colour::fromRGB (0x1a, 0x1a, 0x1d);
-            border = juce::Colour::fromRGB (0x2a, 0x2a, 0x31);
+            fill = input_.darker (0.18f);
         }
         else if (fired)
         {
             fill = juce::Colour::fromRGB (0xb0, 0x85, 0x00);
-            border = juce::Colour::fromRGB (0xd4, 0xaa, 0x22);
         }
         else if (clip.connected)
         {
             fill = juce::Colour::fromRGB (0x42, 0x82, 0x53);
-            border = juce::Colour::fromRGB (0x5a, 0x9a, 0x6a);
         }
         else
         {
-            fill = selected ? juce::Colour::fromRGB (0x4b, 0x4b, 0x4b) : row_;
-            border = juce::Colour::fromRGB (0x50, 0x50, 0x50);
+            fill = input_;
         }
 
-        auto rr = juce::Rectangle<float> (1.0f, 1.0f, (float) (width - 2), (float) (height - 2));
+        auto rr = juce::Rectangle<float> (0.0f, 1.0f, (float) width, (float) juce::jmax (0, height - 2));
         g.setColour (fill);
         g.fillRoundedRectangle (rr, 5.0f);
-        g.setColour (border);
-        g.drawRoundedRectangle (rr, 5.0f, 1.0f);
         return;
     }
     else
     {
-        g.setColour (selected ? juce::Colour::fromRGB (0x4b, 0x4b, 0x4b) : row_);
+        g.setColour (input_);
     }
     g.fillRect (0, 0, width, height - 1);
 }
@@ -1541,14 +1615,23 @@ void TriggerContentComponent::applyTheme()
     lookAndFeel_->setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (210, 220, 230));
     lookAndFeel_->setColour (juce::ComboBox::outlineColourId, row_);
     lookAndFeel_->setColour (juce::ComboBox::arrowColourId, juce::Colour::fromRGB (0x9a, 0xa1, 0xac));
+
+    // Dropdown list style (same as Bridge).
     lookAndFeel_->setColour (juce::PopupMenu::backgroundColourId, input_);
     lookAndFeel_->setColour (juce::PopupMenu::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
     lookAndFeel_->setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
     lookAndFeel_->setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
     lookAndFeel_->setColour (juce::PopupMenu::headerTextColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+
+    // Scrollbar inside popup menu.
+    lookAndFeel_->setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
+    lookAndFeel_->setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
+    lookAndFeel_->setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
+
     lookAndFeel_->setColour (juce::TextEditor::backgroundColourId, input_);
     lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (210, 220, 230));
     lookAndFeel_->setColour (juce::TextEditor::outlineColourId, row_);
+    juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel_.get());
     setLookAndFeel (lookAndFeel_.get());
 
     auto styleEditor = [this] (juce::TextEditor& e)
@@ -1930,8 +2013,13 @@ void TriggerContentComponent::onAudioScanComplete (const juce::Array<bridge::eng
     fillDriverCombo (ltcOutDriverCombo_, outputChoices_, prevOutDriver);
     refreshLtcDeviceListsByDriver();
     refreshNetworkMidiLists();
-    onInputSettingsChanged();
-    onOutputSettingsChanged();
+    if (pendingAutoLoad_)
+        maybeAutoLoadConfig();
+    else
+    {
+        onInputSettingsChanged();
+        onOutputSettingsChanged();
+    }
 }
 
 void TriggerContentComponent::refreshNetworkMidiLists()
@@ -2207,6 +2295,336 @@ void TriggerContentComponent::queryResolume()
            + " maxClips=" + resolumeMaxClips_.getText().trim());
 }
 
+void TriggerContentComponent::openSettingsMenu()
+{
+    juce::PopupMenu m;
+    m.addItem (1, "Save settings...");
+    m.addItem (2, "Save clips...");
+    m.addItem (3, "Save all...");
+    m.addSeparator();
+    m.addItem (4, "Load settings...");
+    m.addItem (5, "Load clips...");
+    m.addItem (6, "Load all...");
+    m.addSeparator();
+    m.addItem (7, "Rescan audio devices");
+    m.addSeparator();
+    m.addItem (8, "Load on startup", true, autoLoadOnStartup_);
+    m.addItem (9, "Close to tray", true, closeToTray_);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton_),
+                     [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (int result)
+                     {
+                         if (safe == nullptr)
+                             return;
+
+                         switch (result)
+                         {
+                             case 1: safe->saveConfigAs (kConfigModeSettings); break;
+                             case 2: safe->saveConfigAs (kConfigModeClips); break;
+                             case 3: safe->saveConfigAs (kConfigModeAll); break;
+                             case 4: safe->loadConfigFrom (kConfigModeSettings); break;
+                             case 5: safe->loadConfigFrom (kConfigModeClips); break;
+                             case 6: safe->loadConfigFrom (kConfigModeAll); break;
+                             case 7:
+                                 safe->startAudioDeviceScan();
+                                 safe->statusLabel_.setText ("Audio devices rescanned", juce::dontSendNotification);
+                                 break;
+                             case 8:
+                                 safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
+                                 safe->saveRuntimePrefs();
+                                 safe->statusLabel_.setText (safe->autoLoadOnStartup_ ? "Load on startup ON" : "Load on startup OFF",
+                                                             juce::dontSendNotification);
+                                 break;
+                             case 9:
+                                 safe->closeToTray_ = ! safe->closeToTray_;
+                                 safe->saveRuntimePrefs();
+                                 safe->statusLabel_.setText (safe->closeToTray_ ? "Close to tray ON" : "Close to tray OFF",
+                                                             juce::dontSendNotification);
+                                 break;
+                             default:
+                                 break;
+                         }
+                     });
+}
+
+void TriggerContentComponent::loadRuntimePrefs()
+{
+    if (auto prefs = bridge::core::ConfigStore::loadJsonFile (getRuntimePrefsFile()))
+    {
+        if (auto* obj = prefs->getDynamicObject())
+        {
+            if (obj->hasProperty ("close_to_tray"))
+                closeToTray_ = (bool) obj->getProperty ("close_to_tray");
+            if (obj->hasProperty ("auto_load_on_startup"))
+                autoLoadOnStartup_ = (bool) obj->getProperty ("auto_load_on_startup");
+            if (obj->hasProperty ("last_config_path"))
+            {
+                const auto path = obj->getProperty ("last_config_path").toString();
+                if (path.isNotEmpty())
+                    lastConfigFile_ = juce::File (path);
+            }
+        }
+    }
+
+    pendingAutoLoad_ = autoLoadOnStartup_ && lastConfigFile_.existsAsFile();
+}
+
+void TriggerContentComponent::saveRuntimePrefs() const
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("close_to_tray", closeToTray_);
+    obj->setProperty ("auto_load_on_startup", autoLoadOnStartup_);
+    obj->setProperty ("last_config_path", lastConfigFile_.getFullPathName());
+    bridge::core::ConfigStore::saveJsonFile (getRuntimePrefsFile(), juce::var (obj));
+}
+
+void TriggerContentComponent::maybeAutoLoadConfig()
+{
+    if (pendingAutoLoad_ && lastConfigFile_.existsAsFile())
+    {
+        pendingAutoLoad_ = false;
+        loadConfigFromFile (lastConfigFile_, kConfigModeAll);
+    }
+}
+
+void TriggerContentComponent::saveConfigAs (int modeId)
+{
+    const juce::String label = modeId == kConfigModeSettings ? "settings"
+                             : modeId == kConfigModeClips ? "clips"
+                                                          : "all";
+
+    saveChooser_ = std::make_unique<juce::FileChooser> (
+        "Save Easy Trigger " + label,
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("easy_trigger_" + label + ".etr"),
+        "*.etr");
+
+    saveChooser_->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this), modeId] (const juce::FileChooser& chooser)
+                               {
+                                   if (safe == nullptr)
+                                       return;
+                                   auto file = chooser.getResult();
+                                   if (file == juce::File{})
+                                       return;
+                                   if (! file.hasFileExtension (".etr"))
+                                       file = file.withFileExtension (".etr");
+                                   safe->saveConfigToFile (file, modeId);
+                                   safe->saveChooser_.reset();
+                               });
+}
+
+void TriggerContentComponent::loadConfigFrom (int modeId)
+{
+    loadChooser_ = std::make_unique<juce::FileChooser> (
+        "Load Easy Trigger config",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+        "*.etr");
+
+    loadChooser_->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this), modeId] (const juce::FileChooser& chooser)
+                               {
+                                   if (safe == nullptr)
+                                       return;
+                                   auto file = chooser.getResult();
+                                   if (file != juce::File{})
+                                       safe->loadConfigFromFile (file, modeId);
+                                   safe->loadChooser_.reset();
+                               });
+}
+
+void TriggerContentComponent::saveConfigToFile (const juce::File& file, int modeId)
+{
+    auto* rootObj = new juce::DynamicObject();
+    rootObj->setProperty ("app", "Easy Trigger");
+    rootObj->setProperty ("format", "etr");
+    rootObj->setProperty ("mode", configModeKey (modeId));
+    rootObj->setProperty ("version", bridge::version::kAppVersion);
+
+    if (modeId == kConfigModeSettings || modeId == kConfigModeAll)
+    {
+        auto* leftObj = new juce::DynamicObject();
+        leftObj->setProperty ("source", sourceCombo_.getSelectedId());
+        leftObj->setProperty ("source_expanded", sourceExpanded_);
+        leftObj->setProperty ("out_ltc_expanded", outLtcExpanded_);
+        leftObj->setProperty ("resolume_expanded", resolumeExpanded_);
+        leftObj->setProperty ("ltc_in_driver", ltcInDriverCombo_.getText());
+        leftObj->setProperty ("ltc_in_device", ltcInDeviceCombo_.getText());
+        leftObj->setProperty ("ltc_in_channel", ltcInChannelCombo_.getText());
+        leftObj->setProperty ("ltc_in_rate", ltcInSampleRateCombo_.getText());
+        leftObj->setProperty ("ltc_in_gain", ltcInGainSlider_.getValue());
+        leftObj->setProperty ("mtc_in", mtcInCombo_.getText());
+        leftObj->setProperty ("artnet_in", artnetInCombo_.getText());
+        leftObj->setProperty ("artnet_listen_ip", artnetListenIpEditor_.getText());
+        leftObj->setProperty ("osc_adapter", oscAdapterCombo_.getText());
+        leftObj->setProperty ("osc_ip", oscIpEditor_.getText());
+        leftObj->setProperty ("osc_port", oscPortEditor_.getText());
+        leftObj->setProperty ("osc_fps", oscFpsCombo_.getText());
+        leftObj->setProperty ("osc_str", oscAddrStrEditor_.getText());
+        leftObj->setProperty ("osc_float", oscAddrFloatEditor_.getText());
+        leftObj->setProperty ("ltc_out_driver", ltcOutDriverCombo_.getText());
+        leftObj->setProperty ("ltc_out_device", ltcOutDeviceCombo_.getText());
+        leftObj->setProperty ("ltc_out_channel", ltcOutChannelCombo_.getText());
+        leftObj->setProperty ("ltc_out_rate", ltcOutSampleRateCombo_.getText());
+        leftObj->setProperty ("ltc_out_offset", ltcOffsetEditor_.getText());
+        leftObj->setProperty ("ltc_out_level", ltcOutLevelSlider_.getValue());
+        leftObj->setProperty ("ltc_out_enabled", ltcOutSwitch_.getState());
+        leftObj->setProperty ("ltc_out_thru", ltcThruDot_.getState());
+        leftObj->setProperty ("res_send_ip", resolumeSendIp_.getText());
+        leftObj->setProperty ("res_send_port", resolumeSendPort_.getText());
+        leftObj->setProperty ("res_listen_ip", resolumeListenIp_.getText());
+        leftObj->setProperty ("res_listen_port", resolumeListenPort_.getText());
+        leftObj->setProperty ("res_max_layers", resolumeMaxLayers_.getText());
+        leftObj->setProperty ("res_max_clips", resolumeMaxClips_.getText());
+        rootObj->setProperty ("left", juce::var (leftObj));
+    }
+
+    if (modeId == kConfigModeClips || modeId == kConfigModeAll)
+    {
+        juce::Array<juce::var> rows;
+        for (const auto& clip : triggerRows_)
+        {
+            auto* rowObj = new juce::DynamicObject();
+            rowObj->setProperty ("layer", clip.layer);
+            rowObj->setProperty ("clip", clip.clip);
+            rowObj->setProperty ("include", clip.include);
+            rowObj->setProperty ("name", clip.name);
+            rowObj->setProperty ("layer_name", clip.layerName);
+            rowObj->setProperty ("trigger_range_sec", clip.triggerRangeSec);
+            rowObj->setProperty ("duration_tc", clip.durationTc);
+            rowObj->setProperty ("trigger_tc", clip.triggerTc);
+            rowObj->setProperty ("end_action_mode", clip.endActionMode);
+            rowObj->setProperty ("end_action_col", clip.endActionCol);
+            rowObj->setProperty ("end_action_layer", clip.endActionLayer);
+            rowObj->setProperty ("end_action_clip", clip.endActionClip);
+            rows.add (juce::var (rowObj));
+        }
+        rootObj->setProperty ("clips", juce::var (rows));
+    }
+
+    if (bridge::core::ConfigStore::saveJsonFile (file, juce::var (rootObj)))
+    {
+        lastConfigFile_ = file;
+        saveRuntimePrefs();
+        statusLabel_.setText ("Config saved: " + file.getFileName(), juce::dontSendNotification);
+    }
+    else
+    {
+        statusLabel_.setText ("Failed to save config", juce::dontSendNotification);
+    }
+}
+
+void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int modeId)
+{
+    auto parsed = bridge::core::ConfigStore::loadJsonFile (file);
+    if (! parsed.has_value() || ! parsed->isObject())
+    {
+        statusLabel_.setText ("Invalid config", juce::dontSendNotification);
+        return;
+    }
+
+    auto* rootObj = parsed->getDynamicObject();
+    if (rootObj == nullptr)
+        return;
+
+    auto setComboText = [] (juce::ComboBox& combo, const juce::String& text)
+    {
+        for (int i = 0; i < combo.getNumItems(); ++i)
+        {
+            if (combo.getItemText (i) == text)
+            {
+                combo.setSelectedItemIndex (i, juce::dontSendNotification);
+                return;
+            }
+        }
+    };
+
+    if ((modeId == kConfigModeSettings || modeId == kConfigModeAll) && rootObj->hasProperty ("left"))
+    {
+        if (auto* leftObj = rootObj->getProperty ("left").getDynamicObject())
+        {
+            sourceCombo_.setSelectedId ((int) leftObj->getProperty ("source"), juce::dontSendNotification);
+            sourceExpanded_ = (bool) leftObj->getProperty ("source_expanded");
+            outLtcExpanded_ = (bool) leftObj->getProperty ("out_ltc_expanded");
+            resolumeExpanded_ = (bool) leftObj->getProperty ("resolume_expanded");
+
+            setComboText (ltcInDriverCombo_, leftObj->getProperty ("ltc_in_driver").toString());
+            setComboText (ltcOutDriverCombo_, leftObj->getProperty ("ltc_out_driver").toString());
+            refreshLtcDeviceListsByDriver();
+            setComboText (ltcInDeviceCombo_, leftObj->getProperty ("ltc_in_device").toString());
+            setComboText (ltcInChannelCombo_, leftObj->getProperty ("ltc_in_channel").toString());
+            setComboText (ltcInSampleRateCombo_, leftObj->getProperty ("ltc_in_rate").toString());
+            ltcInGainSlider_.setValue ((double) leftObj->getProperty ("ltc_in_gain"), juce::dontSendNotification);
+            setComboText (mtcInCombo_, leftObj->getProperty ("mtc_in").toString());
+            setComboText (artnetInCombo_, leftObj->getProperty ("artnet_in").toString());
+            artnetListenIpEditor_.setText (leftObj->getProperty ("artnet_listen_ip").toString(), juce::dontSendNotification);
+            setComboText (oscAdapterCombo_, leftObj->getProperty ("osc_adapter").toString());
+            oscIpEditor_.setText (leftObj->getProperty ("osc_ip").toString(), juce::dontSendNotification);
+            oscPortEditor_.setText (leftObj->getProperty ("osc_port").toString(), juce::dontSendNotification);
+            setComboText (oscFpsCombo_, leftObj->getProperty ("osc_fps").toString());
+            oscAddrStrEditor_.setText (leftObj->getProperty ("osc_str").toString(), juce::dontSendNotification);
+            oscAddrFloatEditor_.setText (leftObj->getProperty ("osc_float").toString(), juce::dontSendNotification);
+
+            setComboText (ltcOutDeviceCombo_, leftObj->getProperty ("ltc_out_device").toString());
+            setComboText (ltcOutChannelCombo_, leftObj->getProperty ("ltc_out_channel").toString());
+            setComboText (ltcOutSampleRateCombo_, leftObj->getProperty ("ltc_out_rate").toString());
+            ltcOffsetEditor_.setText (leftObj->getProperty ("ltc_out_offset").toString(), juce::dontSendNotification);
+            ltcOutLevelSlider_.setValue ((double) leftObj->getProperty ("ltc_out_level"), juce::dontSendNotification);
+            ltcOutSwitch_.setState ((bool) leftObj->getProperty ("ltc_out_enabled"));
+            ltcThruDot_.setState ((bool) leftObj->getProperty ("ltc_out_thru"));
+
+            resolumeSendIp_.setText (leftObj->getProperty ("res_send_ip").toString(), juce::dontSendNotification);
+            resolumeSendPort_.setText (leftObj->getProperty ("res_send_port").toString(), juce::dontSendNotification);
+            resolumeListenIp_.setText (leftObj->getProperty ("res_listen_ip").toString(), juce::dontSendNotification);
+            resolumeListenPort_.setText (leftObj->getProperty ("res_listen_port").toString(), juce::dontSendNotification);
+            resolumeMaxLayers_.setText (leftObj->getProperty ("res_max_layers").toString(), juce::dontSendNotification);
+            resolumeMaxClips_.setText (leftObj->getProperty ("res_max_clips").toString(), juce::dontSendNotification);
+
+            sourceExpandBtn_.setExpanded (sourceExpanded_);
+            outLtcExpandBtn_.setExpanded (outLtcExpanded_);
+            resolumeExpandBtn_.setExpanded (resolumeExpanded_);
+            onInputSettingsChanged();
+            onOutputSettingsChanged();
+        }
+    }
+
+    if ((modeId == kConfigModeClips || modeId == kConfigModeAll) && rootObj->hasProperty ("clips"))
+    {
+        triggerRows_.clear();
+        if (auto* arr = rootObj->getProperty ("clips").getArray())
+        {
+            for (const auto& entry : *arr)
+            {
+                if (auto* rowObj = entry.getDynamicObject())
+                {
+                    TriggerClip clip;
+                    clip.layer = (int) rowObj->getProperty ("layer");
+                    clip.clip = (int) rowObj->getProperty ("clip");
+                    clip.include = (bool) rowObj->getProperty ("include");
+                    clip.name = rowObj->getProperty ("name").toString();
+                    clip.layerName = rowObj->getProperty ("layer_name").toString();
+                    clip.triggerRangeSec = (double) rowObj->getProperty ("trigger_range_sec");
+                    clip.durationTc = rowObj->getProperty ("duration_tc").toString();
+                    clip.triggerTc = rowObj->getProperty ("trigger_tc").toString();
+                    clip.endActionMode = rowObj->getProperty ("end_action_mode").toString();
+                    clip.endActionCol = rowObj->getProperty ("end_action_col").toString();
+                    clip.endActionLayer = rowObj->getProperty ("end_action_layer").toString();
+                    clip.endActionClip = rowObj->getProperty ("end_action_clip").toString();
+                    triggerRows_.push_back (clip);
+                }
+            }
+        }
+        rebuildDisplayRows();
+        triggerTable_.updateContent();
+        triggerTable_.repaint();
+    }
+
+    updateWindowHeight();
+    resized();
+    lastConfigFile_ = file;
+    saveRuntimePrefs();
+    statusLabel_.setText ("Config loaded: " + file.getFileName(), juce::dontSendNotification);
+}
+
 juce::String TriggerContentComponent::secondsToTc (double sec, FrameRate fps)
 {
     const int nominal = juce::jmax (1, frameRateToInt (fps));
@@ -2234,6 +2652,9 @@ MainWindow::MainWindow()
     const auto icon = loadTriggerAppIcon();
     if (icon.isValid())
         setIcon (icon);
+    createTrayIcon();
+    if (trayIcon_ != nullptr && icon.isValid())
+        trayIcon_->setIconImage (icon, icon);
     centreWithSize (1240, 820);
     setVisible (true);
 #if JUCE_WINDOWS
@@ -2245,8 +2666,58 @@ MainWindow::MainWindow()
 #endif
 }
 
+MainWindow::~MainWindow()
+{
+    trayIcon_.reset();
+}
+
 void MainWindow::closeButtonPressed()
 {
+    if (quittingFromMenu_)
+    {
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        return;
+    }
+
+    bool closeToTray = false;
+    if (auto* content = dynamic_cast<TriggerContentComponent*> (getContentComponent()))
+        closeToTray = content->closeToTrayEnabled();
+
+    if (closeToTray)
+    {
+        setVisible (false);
+        if (trayIcon_ != nullptr)
+            trayIcon_->showInfoBubble ("Easy Trigger", "Running in system tray");
+        return;
+    }
+
+    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+}
+
+void MainWindow::prepareForShutdown()
+{
+    juce::ModalComponentManager::getInstance()->cancelAllModalComponents();
+    setVisible (false);
+    if (trayIcon_ != nullptr)
+        trayIcon_->setVisible (false);
+}
+
+void MainWindow::createTrayIcon()
+{
+    trayIcon_ = std::make_unique<TriggerTrayIcon> (*this);
+    trayIcon_->setIconTooltip ("Easy Trigger");
+}
+
+void MainWindow::showFromTray()
+{
+    setVisible (true);
+    setMinimised (false);
+    toFront (true);
+}
+
+void MainWindow::quitFromTray()
+{
+    quittingFromMenu_ = true;
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 } // namespace trigger

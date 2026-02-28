@@ -200,6 +200,108 @@ public:
         g.fillAll (findColour (juce::PopupMenu::backgroundColourId));
     }
 
+    void drawPopupMenuBackgroundWithOptions (juce::Graphics& g,
+                                             int width,
+                                             int height,
+                                             const juce::PopupMenu::Options&) override
+    {
+        drawPopupMenuBackground (g, width, height);
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g,
+                            const juce::Rectangle<int>& area,
+                            bool isSeparator,
+                            bool isActive,
+                            bool isHighlighted,
+                            bool isTicked,
+                            bool hasSubMenu,
+                            const juce::String& text,
+                            const juce::String& shortcutKeyText,
+                            const juce::Drawable* icon,
+                            const juce::Colour* textColour) override
+    {
+        juce::ignoreUnused (icon, shortcutKeyText);
+
+        if (isSeparator)
+        {
+            auto r = area.reduced (10, area.getHeight() / 2);
+            g.setColour (juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+            g.drawLine ((float) r.getX(), (float) r.getY(), (float) r.getRight(), (float) r.getY(), 1.0f);
+            return;
+        }
+
+        auto r = area.reduced (2, 0);
+        g.setColour (isHighlighted ? findColour (juce::PopupMenu::highlightedBackgroundColourId)
+                                   : findColour (juce::PopupMenu::backgroundColourId));
+        g.fillRect (r);
+
+        juce::Colour colour = textColour != nullptr ? *textColour
+                                                    : findColour (isHighlighted ? juce::PopupMenu::highlightedTextColourId
+                                                                                : juce::PopupMenu::textColourId);
+        if (! isActive)
+            colour = colour.withAlpha (0.45f);
+
+        if (isTicked)
+        {
+            auto dot = juce::Rectangle<float> ((float) r.getX() + 8.0f, (float) r.getCentreY() - 4.0f, 8.0f, 8.0f);
+            g.setColour (colour);
+            g.fillEllipse (dot);
+        }
+
+        g.setColour (colour);
+        g.setFont (getPopupMenuFont());
+        g.drawText (text, r.withTrimmedLeft (24).withTrimmedRight (hasSubMenu ? 18 : 8), juce::Justification::centredLeft, true);
+
+        if (hasSubMenu)
+        {
+            juce::Path p;
+            const float cx = (float) r.getRight() - 9.0f;
+            const float cy = (float) r.getCentreY();
+            p.startNewSubPath (cx - 3.0f, cy - 4.0f);
+            p.lineTo (cx + 1.5f, cy);
+            p.lineTo (cx - 3.0f, cy + 4.0f);
+            g.strokePath (p, juce::PathStrokeType (1.4f));
+        }
+    }
+
+    void drawPopupMenuItemWithOptions (juce::Graphics& g,
+                                       const juce::Rectangle<int>& area,
+                                       bool isHighlighted,
+                                       const juce::PopupMenu::Item& item,
+                                       const juce::PopupMenu::Options&) override
+    {
+        drawPopupMenuItem (g,
+                           area,
+                           item.isSeparator,
+                           item.isEnabled,
+                           isHighlighted,
+                           item.isTicked,
+                           item.subMenu != nullptr,
+                           item.text,
+                           item.shortcutKeyDescription,
+                           item.image.get(),
+                           item.colour.isTransparent() ? nullptr : &item.colour);
+    }
+
+    void drawPopupMenuSectionHeader (juce::Graphics& g,
+                                     const juce::Rectangle<int>& area,
+                                     const juce::String& sectionName) override
+    {
+        g.setColour (findColour (juce::PopupMenu::backgroundColourId));
+        g.fillRect (area);
+        g.setColour (findColour (juce::PopupMenu::headerTextColourId));
+        g.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
+        g.drawText (sectionName, area.withTrimmedLeft (10), juce::Justification::centredLeft, true);
+    }
+
+    void drawPopupMenuSectionHeaderWithOptions (juce::Graphics& g,
+                                                const juce::Rectangle<int>& area,
+                                                const juce::String& sectionName,
+                                                const juce::PopupMenu::Options&) override
+    {
+        drawPopupMenuSectionHeader (g, area, sectionName);
+    }
+
     void drawButtonBackground (juce::Graphics& g,
                                juce::Button& button,
                                const juce::Colour& backgroundColour,
@@ -281,6 +383,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool closeToTrayEnabled() const noexcept { return closeToTray_; }
 
 private:
     class AudioScanThread;
@@ -324,6 +427,14 @@ private:
     void onInputSettingsChanged();
     void onOutputSettingsChanged();
     void onOutputToggleChanged();
+    void openSettingsMenu();
+    void loadRuntimePrefs();
+    void saveRuntimePrefs() const;
+    void maybeAutoLoadConfig();
+    void saveConfigAs (int modeId);
+    void loadConfigFrom (int modeId);
+    void saveConfigToFile (const juce::File& file, int modeId);
+    void loadConfigFromFile (const juce::File& file, int modeId);
     int calcPreferredHeight() const;
     int calcHeightForState (bool sourceExpanded, int sourceId, bool outLtcExpanded, bool resolumeExpanded) const;
     void updateWindowHeight();
@@ -358,6 +469,8 @@ private:
     juce::Array<int> filteredInputIndices_;
     juce::Array<int> filteredOutputIndices_;
     std::unique_ptr<AudioScanThread> scanThread_;
+    std::unique_ptr<juce::FileChooser> saveChooser_;
+    std::unique_ptr<juce::FileChooser> loadChooser_;
     std::vector<TriggerClip> triggerRows_;
     std::vector<DisplayRow> displayRows_;
     std::map<int, bool> layerExpanded_;
@@ -371,12 +484,16 @@ private:
     juce::Font headerBold_;
     juce::Font headerLight_;
     juce::Font mono_;
+    bool closeToTray_ { false };
+    bool autoLoadOnStartup_ { false };
+    bool pendingAutoLoad_ { false };
     bool hasLatchedTc_ { false };
     Timecode latchedTc_ {};
     FrameRate latchedFps_ { FrameRate::FPS_25 };
     bool hasLiveInputTc_ { false };
     Timecode liveInputTc_ {};
     FrameRate liveInputFps_ { FrameRate::FPS_25 };
+    juce::File lastConfigFile_;
 
     juce::Label easyLabel_ { {}, "EASY" };
     juce::Label triggerLabel_ { {}, "TRIGGER" };
@@ -456,6 +573,8 @@ private:
     juce::TextEditor resolumeMaxLayers_;
     juce::TextEditor resolumeMaxClips_;
     juce::TextButton getTriggersBtn_ { "Get Triggers" };
+    juce::TextButton settingsButton_ { "Settings" };
+    juce::TextButton quitButton_ { "Quit" };
 
     juce::TableListBox triggerTable_;
     juce::Array<juce::Rectangle<int>> leftRowRects_;
@@ -475,6 +594,16 @@ class MainWindow final : public juce::DocumentWindow
 {
 public:
     MainWindow();
+    ~MainWindow() override;
     void closeButtonPressed() override;
+    void showFromTray();
+    void quitFromTray();
+    void prepareForShutdown();
+
+private:
+    void createTrayIcon();
+
+    std::unique_ptr<juce::SystemTrayIconComponent> trayIcon_;
+    bool quittingFromMenu_ { false };
 };
 } // namespace trigger

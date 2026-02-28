@@ -14,7 +14,7 @@ public:
     OscInput();
     ~OscInput() override;
 
-    bool start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, juce::String& errorOut);
+    bool start (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, juce::String& errorOut);
     void stop();
 
     bool getIsRunning() const;

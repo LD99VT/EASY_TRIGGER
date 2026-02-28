@@ -17,7 +17,7 @@ OscInput::~OscInput()
     stop();
 }
 
-bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, juce::String& errorOut)
+bool OscInput::start (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, juce::String& errorOut)
 {
     stop();
 
@@ -454,9 +454,10 @@ void OscInput::parseStringTc (juce::String text, bool rememberStringTs)
 
 void OscInput::parseFloatTime (double t)
 {
-    const auto fps = frameRateToDouble (fps_.load (std::memory_order_relaxed));
-    const int fpsInt = juce::jmax (1, frameRateToInt (fps_.load (std::memory_order_relaxed)));
-    const auto totalFrames = (int64_t) std::llround (juce::jmax (0.0, t) * fps);
+    const FrameRate fps = fps_.load (std::memory_order_relaxed);
+    const auto fpsDouble = frameRateToDouble (fps);
+    const int fpsInt = juce::jmax (1, frameRateToInt (fps));
+    const auto totalFrames = (int64_t) std::llround (juce::jmax (0.0, t) * fpsDouble);
 
     const int frames = (int) (totalFrames % fpsInt);
     const auto totalSec = (int64_t) juce::jmax (0.0, t);

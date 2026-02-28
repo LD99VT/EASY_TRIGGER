@@ -9,6 +9,8 @@
 
 #if JUCE_WINDOWS
 #include <windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 #endif
 
 namespace trigger
@@ -203,6 +205,14 @@ void applyNativeDarkTitleBar (juce::DocumentWindow& window)
 
     ::FreeLibrary (dwm);
 }
+
+bool isNativeWindowMaximized (juce::DocumentWindow& window)
+{
+    if (auto* peer = window.getPeer())
+        if (auto* hwnd = static_cast<HWND> (peer->getNativeHandle()))
+            return ::IsZoomed (hwnd) != FALSE;
+    return false;
+}
 #endif
 
 juce::File findUiBaseDirFromExe()
@@ -372,6 +382,138 @@ public:
     }
 };
 
+// ─── Live Trigger Status Monitor window ─────────────────────────────────────
+class StatusMonitorWindow final : public juce::DocumentWindow,
+                                  private juce::Timer
+{
+public:
+    using Getter = std::function<void (juce::Array<juce::String>&, juce::Array<juce::String>&)>;
+
+    StatusMonitorWindow (Getter getter, juce::Component* relativeTo)
+        : juce::DocumentWindow ("Trigger Status Monitor",
+                                juce::Colour::fromRGB (0x1e, 0x1e, 0x1e),
+                                juce::DocumentWindow::closeButton),
+          getter_ (std::move (getter))
+    {
+        setUsingNativeTitleBar (true);
+        setResizable (false, false);
+        setContentOwned (new Content (*this), true);
+        centreWithSize (420, 390);
+        if (relativeTo != nullptr)
+        {
+            const auto rc = relativeTo->getScreenBounds();
+            setBounds (rc.getCentreX() - 210, rc.getCentreY() - 195, 420, 390);
+        }
+        setVisible (true);
+#if JUCE_WINDOWS
+        applyNativeDarkTitleBar (*this);
+        if (auto* hwnd = (HWND) getWindowHandle())
+        {
+            constexpr UINT ICON_SMALL = 0; // SMALL = 0, BIG = 1 in WM_SETICON
+            constexpr UINT ICON_BIG   = 1;
+            ::SendMessageW (hwnd, WM_SETICON, ICON_SMALL, 0);
+            ::SendMessageW (hwnd, WM_SETICON, ICON_BIG, 0);
+        }
+#endif
+        toFront (true);
+        startTimerHz (5);
+    }
+
+    void closeButtonPressed() override { delete this; }
+
+    void timerCallback() override
+    {
+        if (auto* c = dynamic_cast<Content*> (getContentComponent()))
+            c->refresh();
+    }
+
+    void getValues (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals)
+    {
+        getter_ (keys, vals);
+    }
+
+private:
+    Getter getter_;
+
+    static constexpr int kRows = 10;
+
+    struct Content final : juce::Component
+    {
+        StatusMonitorWindow& win_;
+
+        juce::Label keyLbls_[kRows];
+        juce::Label valLbls_[kRows];
+        juce::TextButton ok_ { "OK" };
+
+        explicit Content (StatusMonitorWindow& w) : win_ (w)
+        {
+            const juce::Colour keyCol = juce::Colour::fromRGB (0x7a, 0x7a, 0x86);
+            const juce::Colour valCol = juce::Colour::fromRGB (0xe0, 0xe0, 0xe0);
+
+            for (int i = 0; i < kRows; ++i)
+            {
+                keyLbls_[i].setFont (juce::FontOptions (12.5f).withStyle ("Bold"));
+                keyLbls_[i].setColour (juce::Label::textColourId, keyCol);
+                keyLbls_[i].setJustificationType (juce::Justification::centredRight);
+                addAndMakeVisible (keyLbls_[i]);
+
+                valLbls_[i].setFont (juce::FontOptions (12.5f));
+                valLbls_[i].setColour (juce::Label::textColourId, valCol);
+                valLbls_[i].setJustificationType (juce::Justification::centredLeft);
+                addAndMakeVisible (valLbls_[i]);
+            }
+
+            ok_.setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+            ok_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+            ok_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+            ok_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+            ok_.onClick = [this]
+            {
+                juce::MessageManager::callAsync ([w = &win_] { delete w; });
+            };
+            addAndMakeVisible (ok_);
+
+            refresh();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour::fromRGB (0x17, 0x17, 0x17));
+        }
+
+        void resized() override
+        {
+            constexpr int kRowH = 30;
+            constexpr int kPad  = 14;
+            constexpr int kKeyW = 120;
+            constexpr int kGap  = 10;
+            const int valW = getWidth() - kPad * 2 - kKeyW - kGap;
+
+            for (int i = 0; i < kRows; ++i)
+            {
+                const int y = kPad + i * kRowH;
+                keyLbls_[i].setBounds (kPad, y, kKeyW, kRowH);
+                valLbls_[i].setBounds (kPad + kKeyW + kGap, y, valW, kRowH);
+            }
+
+            const int btnY = kPad + kRows * kRowH + kPad;
+            ok_.setBounds ((getWidth() - 100) / 2, btnY, 100, 32);
+        }
+
+        void refresh()
+        {
+            juce::Array<juce::String> keys, vals;
+            win_.getValues (keys, vals);
+            for (int i = 0; i < juce::jmin (kRows, keys.size()); ++i)
+            {
+                keyLbls_[i].setText (keys[i], juce::dontSendNotification);
+                valLbls_[i].setText (vals[i], juce::dontSendNotification);
+            }
+        }
+    };
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 class InlineEndActionCell final : public juce::Component
 {
 public:
@@ -400,6 +542,9 @@ public:
             e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
             e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
             e.setJustification (juce::Justification::centredLeft);
+            e.setBorder (juce::BorderSize<int> (0));
+            e.setIndents (4, 0); // 0 top-indent lets centredLeft do vertical centering
+            e.setFont (juce::FontOptions (13.0f));
             e.onReturnKey = [&e] { e.giveAwayKeyboardFocus(); };
         };
         styleEditor (value1_);
@@ -547,6 +692,10 @@ TriggerContentComponent::TriggerContentComponent()
     setOpaque (true);
     loadFonts();
     applyTheme();
+    addAndMakeVisible (leftViewport_);
+    leftViewport_.setViewedComponent (&leftViewportContent_, false);
+    leftViewport_.setScrollBarsShown (true, false);
+    leftViewport_.setScrollBarThickness (8);
 
     easyLabel_.setText ("EASY ", juce::dontSendNotification);
     easyLabel_.setJustificationType (juce::Justification::centredLeft);
@@ -573,7 +722,7 @@ TriggerContentComponent::TriggerContentComponent()
     sourceCombo_.addItem ("OSC", 4);
     sourceCombo_.setSelectedId (1, juce::dontSendNotification);
     styleCombo (sourceCombo_);
-    addAndMakeVisible (sourceHeaderLabel_);
+    leftViewportContent_.addAndMakeVisible (sourceHeaderLabel_);
     sourceExpandBtn_.setExpanded (true);
     sourceExpandBtn_.onClick = [this]
     {
@@ -583,8 +732,8 @@ TriggerContentComponent::TriggerContentComponent()
         resized();
         repaint();
     };
-    addAndMakeVisible (sourceExpandBtn_);
-    addAndMakeVisible (sourceCombo_);
+    leftViewportContent_.addAndMakeVisible (sourceExpandBtn_);
+    leftViewportContent_.addAndMakeVisible (sourceCombo_);
     sourceHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
     sourceHeaderLabel_.setFont (juce::FontOptions (14.0f));
     sourceHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
@@ -598,7 +747,7 @@ TriggerContentComponent::TriggerContentComponent()
     {
         l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
         l->setJustificationType (juce::Justification::centredLeft);
-        addAndMakeVisible (*l);
+        leftViewportContent_.addAndMakeVisible (*l);
     }
 
     for (auto* c : { &ltcInDriverCombo_, &ltcOutDriverCombo_ })
@@ -617,8 +766,8 @@ TriggerContentComponent::TriggerContentComponent()
     styleCombo (ltcOutDeviceCombo_);
     styleCombo (ltcOutChannelCombo_);
     styleCombo (ltcOutSampleRateCombo_);
-    addAndMakeVisible (ltcInDriverCombo_);
-    addAndMakeVisible (ltcOutDriverCombo_);
+    leftViewportContent_.addAndMakeVisible (ltcInDriverCombo_);
+    leftViewportContent_.addAndMakeVisible (ltcOutDriverCombo_);
 
     fillChannelCombo (ltcInChannelCombo_);
     fillChannelCombo (ltcOutChannelCombo_);
@@ -657,8 +806,8 @@ TriggerContentComponent::TriggerContentComponent()
     outLtcHeaderLabel_.setFont (juce::FontOptions (14.0f));
     outLtcHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     outLtcHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 42, 0, 0));
-    addAndMakeVisible (outLtcHeaderLabel_);
-    addAndMakeVisible (outLtcExpandBtn_);
+    leftViewportContent_.addAndMakeVisible (outLtcHeaderLabel_);
+    leftViewportContent_.addAndMakeVisible (outLtcExpandBtn_);
     outLtcExpandBtn_.setExpanded (false);
     outLtcExpandBtn_.onClick = [this]
     {
@@ -668,20 +817,20 @@ TriggerContentComponent::TriggerContentComponent()
         resized();
         repaint();
     };
-    addAndMakeVisible (ltcOutSwitch_);
-    addAndMakeVisible (ltcThruDot_);
+    leftViewportContent_.addAndMakeVisible (ltcOutSwitch_);
+    leftViewportContent_.addAndMakeVisible (ltcThruDot_);
     ltcThruLbl_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xd0, 0xd0, 0xd0));
     ltcThruLbl_.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (ltcThruLbl_);
+    leftViewportContent_.addAndMakeVisible (ltcThruLbl_);
 
     for (auto* c : { &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &oscAdapterCombo_, &mtcInCombo_, &artnetInCombo_, &oscFpsCombo_ })
     {
-        addAndMakeVisible (*c);
+        leftViewportContent_.addAndMakeVisible (*c);
         c->onChange = [this] { onInputSettingsChanged(); };
     }
     for (auto* c : { &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_ })
     {
-        addAndMakeVisible (*c);
+        leftViewportContent_.addAndMakeVisible (*c);
         c->onChange = [this] { onOutputSettingsChanged(); };
     }
     artnetListenIpEditor_.onTextChange = [this] { onInputSettingsChanged(); };
@@ -709,15 +858,15 @@ TriggerContentComponent::TriggerContentComponent()
     };
     ltcOutSwitch_.onToggle = [this] (bool) { onOutputToggleChanged(); };
 
-    addAndMakeVisible (ltcInGainSlider_);
-    addAndMakeVisible (ltcInLevelBar_);
-    addAndMakeVisible (ltcOutLevelSlider_);
-    addAndMakeVisible (ltcOffsetEditor_);
-    addAndMakeVisible (oscIpEditor_);
-    addAndMakeVisible (oscPortEditor_);
-    addAndMakeVisible (oscAddrStrEditor_);
-    addAndMakeVisible (oscAddrFloatEditor_);
-    addAndMakeVisible (artnetListenIpEditor_);
+    leftViewportContent_.addAndMakeVisible (ltcInGainSlider_);
+    leftViewportContent_.addAndMakeVisible (ltcInLevelBar_);
+    leftViewportContent_.addAndMakeVisible (ltcOutLevelSlider_);
+    leftViewportContent_.addAndMakeVisible (ltcOffsetEditor_);
+    leftViewportContent_.addAndMakeVisible (oscIpEditor_);
+    leftViewportContent_.addAndMakeVisible (oscPortEditor_);
+    leftViewportContent_.addAndMakeVisible (oscAddrStrEditor_);
+    leftViewportContent_.addAndMakeVisible (oscAddrFloatEditor_);
+    leftViewportContent_.addAndMakeVisible (artnetListenIpEditor_);
 
     resolumeSendIp_.setText ("127.0.0.1");
     resolumeSendPort_.setText ("7000");
@@ -749,15 +898,14 @@ TriggerContentComponent::TriggerContentComponent()
         else
             juce::JUCEApplication::getInstance()->systemRequestedQuit();
     };
-
     triggerTable_.setModel (this);
     triggerTable_.setRowHeight (36);
     triggerTable_.setOutlineThickness (0);
     triggerTable_.setColour (juce::ListBox::outlineColourId, juce::Colour::fromRGB (0x3f, 0x3f, 0x3f));
     triggerTable_.setColour (juce::ListBox::backgroundColourId, bg_);
-    triggerTable_.getHorizontalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0xb0, 0xb0, 0xb0));
+    triggerTable_.getHorizontalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
     triggerTable_.getHorizontalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
-    triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0xb0, 0xb0, 0xb0));
+    triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
     triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
     auto& h = triggerTable_.getHeader();
     h.addColumn ("", 1, 40);
@@ -792,26 +940,28 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (fpsLabel_);
     addAndMakeVisible (resolumeStatusLabel_);
     addAndMakeVisible (statusLabel_);
-    addAndMakeVisible (resolumeHeader_);
-    addAndMakeVisible (resolumeExpandBtn_);
-    addAndMakeVisible (resSendIpLbl_);
-    addAndMakeVisible (resSendPortLbl_);
-    addAndMakeVisible (resListenIpLbl_);
-    addAndMakeVisible (resListenPortLbl_);
-    addAndMakeVisible (resMaxLayersLbl_);
-    addAndMakeVisible (resMaxClipsLbl_);
-    addAndMakeVisible (resGlobalOffsetLbl_);
-    addAndMakeVisible (resolumeSendIp_);
-    addAndMakeVisible (resolumeSendPort_);
-    addAndMakeVisible (resolumeListenIp_);
-    addAndMakeVisible (resolumeListenPort_);
-    addAndMakeVisible (resolumeMaxLayers_);
-    addAndMakeVisible (resolumeMaxClips_);
-    addAndMakeVisible (resolumeGlobalOffset_);
+    leftViewportContent_.addAndMakeVisible (resolumeHeader_);
+    leftViewportContent_.addAndMakeVisible (resolumeExpandBtn_);
+    leftViewportContent_.addAndMakeVisible (resSendIpLbl_);
+    leftViewportContent_.addAndMakeVisible (resSendPortLbl_);
+    leftViewportContent_.addAndMakeVisible (resListenIpLbl_);
+    leftViewportContent_.addAndMakeVisible (resListenPortLbl_);
+    leftViewportContent_.addAndMakeVisible (resMaxLayersLbl_);
+    leftViewportContent_.addAndMakeVisible (resMaxClipsLbl_);
+    leftViewportContent_.addAndMakeVisible (resGlobalOffsetLbl_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort_);
+    leftViewportContent_.addAndMakeVisible (resolumeListenIp_);
+    leftViewportContent_.addAndMakeVisible (resolumeListenPort_);
+    leftViewportContent_.addAndMakeVisible (resolumeMaxLayers_);
+    leftViewportContent_.addAndMakeVisible (resolumeMaxClips_);
+    leftViewportContent_.addAndMakeVisible (resolumeGlobalOffset_);
     addAndMakeVisible (getTriggersBtn_);
     addAndMakeVisible (settingsButton_);
     addAndMakeVisible (quitButton_);
     addAndMakeVisible (triggerTable_);
+    if (auto* vp = triggerTable_.getViewport())
+        vp->setScrollBarsShown (true, false);
 
     setSize (1240, 820);
     resized();
@@ -838,33 +988,12 @@ int TriggerContentComponent::calcPreferredHeight() const
 
 int TriggerContentComponent::calcHeightForState (bool sourceExpanded, int sourceId, bool outLtcExpanded, bool resolumeExpanded) const
 {
+    juce::ignoreUnused (sourceExpanded, sourceId, outLtcExpanded, resolumeExpanded);
     int h = 16;
     h += 40 + 4;
     h += 90;
     h += 22 + 4;
-
-    auto addRows = [&h] (int count)
-    {
-        h += count * (40 + 4);
-    };
-
-    addRows (1);
-    if (sourceExpanded)
-    {
-        if (sourceId == 1) addRows (6);
-        else if (sourceId == 2) addRows (1);
-        else if (sourceId == 3) addRows (2);
-        else if (sourceId == 4) addRows (6);
-    }
-
-    addRows (1);
-    if (outLtcExpanded)
-        addRows (6);
-
-    addRows (1);
-    if (resolumeExpanded)
-        addRows (6);
-
+    h += 3 * (40 + 4);
     h += 40 + 4;
     h += 40 + 4;
     h += 24 + 4;
@@ -878,13 +1007,17 @@ void TriggerContentComponent::updateWindowHeight()
     {
         if (window->isMinimised())
             return;
+#if JUCE_WINDOWS
+        if (isNativeWindowMaximized (*window))
+            return;
+#endif
 
         auto* content = window->getContentComponent();
         const int chrome = content != nullptr ? (window->getHeight() - content->getHeight()) : 0;
         const int minContent = calcPreferredHeight();
         const int minTotal = minContent + chrome;
 
-        window->setResizeLimits (980, minTotal, 1800, 1400);
+        window->setResizeLimits (1160, minTotal, 1800, 1400);
 
         if (window->getHeight() < minTotal)
             window->setSize (window->getWidth(), minTotal);
@@ -908,12 +1041,18 @@ void TriggerContentComponent::paint (juce::Graphics& g)
         g.setColour (juce::Colour::fromRGB (0x33, 0x33, 0x33));
         g.drawRoundedRectangle (timerRect_.toFloat(), 5.0f, 1.0f);
     }
-    g.setColour (juce::Colour::fromRGB (0x65, 0x65, 0x65));
-    for (auto r : sectionRowRects_)
-        g.fillRoundedRectangle (r.toFloat(), 5.0f);
-    g.setColour (juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
-    for (auto r : leftRowRects_)
-        g.fillRoundedRectangle (r.toFloat(), 5.0f);
+    {
+        juce::Graphics::ScopedSaveState savedState (g);
+        auto clip = leftViewportRect_;
+        g.reduceClipRegion (clip);
+        const auto viewPos = leftViewport_.getViewPosition();
+        g.setColour (juce::Colour::fromRGB (0x65, 0x65, 0x65));
+        for (auto r : sectionRowRects_)
+            g.fillRoundedRectangle (r.translated (clip.getX() - viewPos.x, clip.getY() - viewPos.y).toFloat(), 5.0f);
+        g.setColour (juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+        for (auto r : leftRowRects_)
+            g.fillRoundedRectangle (r.translated (clip.getX() - viewPos.x, clip.getY() - viewPos.y).toFloat(), 5.0f);
+    }
     g.setColour (bg_);
     for (auto r : rightSectionRects_)
         g.fillRoundedRectangle (r.toFloat(), 6.0f);
@@ -967,73 +1106,93 @@ void TriggerContentComponent::resized()
     left.removeFromTop (4);
     timerRect_ = left.removeFromTop (90);
     tcLabel_.setBounds (timerRect_);
-    fpsLabel_.setBounds (left.removeFromTop (22));
+    auto fpsRect = left.removeFromTop (22);
+    fpsLabel_.setBounds (fpsRect);
     left.removeFromTop (4);
 
     auto footerArea = left.removeFromBottom (84);
     auto actionRow = footerArea.removeFromBottom (40);
     footerArea.removeFromBottom (4);
     auto getTriggersRow = footerArea.removeFromBottom (40);
-
-    auto row = [&left, this] (int h = 40)
+    leftViewportRect_ = left;
+    leftViewport_.setBounds (leftViewportRect_);
+    const auto src = sourceCombo_.getSelectedId();
+    auto rowsForSource = [src]() -> int
     {
-        auto r = left.removeFromTop (h);
-        left.removeFromTop (4);
-        leftRowRects_.add (r);
+        if (src == 1) return 6;
+        if (src == 2) return 1;
+        if (src == 3) return 2;
+        return 6;
+    };
+    const int contentRows = 1 + (sourceExpanded_ ? rowsForSource() : 0)
+                          + 1 + (resolumeExpanded_ ? 7 : 0)
+                          + 1 + (outLtcExpanded_ ? 6 : 0);
+    const int viewportScrollWidth = leftViewport_.getScrollBarThickness();
+    const bool vScrollNeeded = (contentRows * 44 > leftViewportRect_.getHeight());
+    auto leftLayoutArea = juce::Rectangle<int> (0, 0, leftViewportRect_.getWidth() - (vScrollNeeded ? viewportScrollWidth : 0) - 4, 0);
+    int contentY = 0;
+    auto setCompBounds = [&] (juce::Component& c, juce::Rectangle<int> r, bool wanted = true)
+    {
+        c.setBounds (r);
+        c.setVisible (wanted);
+    };
+    auto pushRowRect = [&] (juce::Rectangle<int> r, bool section)
+    {
+        if (section) sectionRowRects_.add (r);
+        else leftRowRects_.add (r);
+    };
+    auto nextRow = [&] (int h = 40)
+    {
+        auto r = juce::Rectangle<int> (leftLayoutArea.getX(), contentY, leftLayoutArea.getWidth(), h);
+        contentY += h + 4;
         return r;
     };
-    auto layoutParam = [&] (juce::Label& lbl, juce::Component& c, int h = 40)
+    auto layoutParam = [&] (juce::Label& lbl, juce::Component& c, bool wanted = true, int h = 40)
     {
-        auto r = row (h);
+        auto r = nextRow (h);
+        pushRowRect (r, false);
         auto l = r.removeFromLeft (112);
-        lbl.setBounds (l.reduced (10, 0));
+        setCompBounds (lbl, l.reduced (10, 0), wanted);
         auto control = r.reduced (0, 3).reduced (2, 0);
-        c.setBounds (control);
+        setCompBounds (c, control, wanted);
     };
-
-    auto headerRow = [&] (juce::Label& lbl, ExpandCircleButton& btn)
+    auto headerRow = [&] (juce::Label& lbl, ExpandCircleButton& btn, bool wanted = true)
     {
-        auto r = row();
-        if (leftRowRects_.size() > 0)
-            leftRowRects_.remove (leftRowRects_.size() - 1);
-        sectionRowRects_.add (r);
+        auto r = nextRow();
+        pushRowRect (r, true);
         auto bh = r.removeFromLeft (36);
         const int d = 28;
-        btn.setBounds (bh.getX() + 3 + (bh.getWidth() - d) / 2, bh.getY() + (bh.getHeight() - d) / 2, d, d);
-        lbl.setBounds (r.reduced (6, 0));
+        setCompBounds (btn, { bh.getX() + 3 + (bh.getWidth() - d) / 2, bh.getY() + (bh.getHeight() - d) / 2, d, d }, wanted);
+        setCompBounds (lbl, r.reduced (6, 0), wanted);
     };
 
-    auto sourceRow = row();
-    if (leftRowRects_.size() > 0)
-        leftRowRects_.remove (leftRowRects_.size() - 1);
-    sectionRowRects_.add (sourceRow);
+    auto sourceRow = nextRow();
+    pushRowRect (sourceRow, true);
     auto sourceLabelZone = sourceRow.removeFromLeft (112);
     {
         auto btnHost = sourceLabelZone.removeFromLeft (36);
         const int d = 28;
-        sourceExpandBtn_.setBounds (
-            btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
-            btnHost.getY() + (btnHost.getHeight() - d) / 2,
-            d, d);
+        setCompBounds (sourceExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
+                                           btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
     }
-    sourceHeaderLabel_.setBounds (sourceLabelZone);
-    sourceCombo_.setBounds (sourceRow.reduced (2, 3));
+    setCompBounds (sourceHeaderLabel_, sourceLabelZone);
+    setCompBounds (sourceCombo_, sourceRow.reduced (2, 3));
     sourceHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     sourceExpandBtn_.setExpanded (sourceExpanded_);
 
-    const auto src = sourceCombo_.getSelectedId();
     if (sourceExpanded_ && src == 1)
     {
         layoutParam (inDriverLbl_, ltcInDriverCombo_);
         layoutParam (inDeviceLbl_, ltcInDeviceCombo_);
         layoutParam (inChannelLbl_, ltcInChannelCombo_);
         layoutParam (inRateLbl_, ltcInSampleRateCombo_);
-        auto meterRow = row();
+        auto meterRow = nextRow();
+        pushRowRect (meterRow, false);
         auto meterLabelArea = meterRow.removeFromLeft (112);
-        inLevelLbl_.setBounds (meterLabelArea.reduced (10, 0));
+        setCompBounds (inLevelLbl_, meterLabelArea.reduced (10, 0));
         auto meterControl = meterRow.reduced (0, 3).reduced (2, 0).reduced (6, 0);
         const int meterH = 8;
-        ltcInLevelBar_.setBounds (juce::Rectangle<int> (meterControl.getX(), meterControl.getCentreY() - meterH / 2, meterControl.getWidth(), meterH));
+        setCompBounds (ltcInLevelBar_, juce::Rectangle<int> (meterControl.getX(), meterControl.getCentreY() - meterH / 2, meterControl.getWidth(), meterH));
         layoutParam (inGainLbl_, ltcInGainSlider_);
     }
     else if (sourceExpanded_ && src == 2)
@@ -1067,28 +1226,24 @@ void TriggerContentComponent::resized()
         layoutParam (resGlobalOffsetLbl_, resolumeGlobalOffset_);
     }
 
-    auto ltcHeader = row();
-    if (leftRowRects_.size() > 0)
-        leftRowRects_.remove (leftRowRects_.size() - 1);
-    sectionRowRects_.add (ltcHeader);
+    auto ltcHeader = nextRow();
+    pushRowRect (ltcHeader, true);
     auto ltcHeaderCopy = ltcHeader;
-    outLtcHeaderLabel_.setBounds (ltcHeaderCopy);
+    setCompBounds (outLtcHeaderLabel_, ltcHeaderCopy);
     {
         auto btnHost = ltcHeader.removeFromLeft (36);
         const int d = 28;
-        outLtcExpandBtn_.setBounds (
-            btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
-            btnHost.getY() + (btnHost.getHeight() - d) / 2,
-            d, d);
+        setCompBounds (outLtcExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
+                                           btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
     }
     ltcHeader.removeFromLeft (110);
-    ltcOutSwitch_.setBounds (ltcHeader.removeFromRight (54).reduced (0, 6));
+    setCompBounds (ltcOutSwitch_, ltcHeader.removeFromRight (54).reduced (0, 6));
     {
         auto dotHost = ltcHeader.removeFromRight (22);
         const int d = 18;
-        ltcThruDot_.setBounds (dotHost.getCentreX() - d / 2, dotHost.getCentreY() - d / 2, d, d);
+        setCompBounds (ltcThruDot_, { dotHost.getCentreX() - d / 2, dotHost.getCentreY() - d / 2, d, d });
     }
-    ltcThruLbl_.setBounds (ltcHeader.removeFromRight (40));
+    setCompBounds (ltcThruLbl_, ltcHeader.removeFromRight (40));
     outLtcHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     outLtcExpandBtn_.setExpanded (outLtcExpanded_);
 
@@ -1101,6 +1256,7 @@ void TriggerContentComponent::resized()
         layoutParam (outOffsetLbl_, ltcOffsetEditor_);
         layoutParam (outLevelLbl_, ltcOutLevelSlider_);
     }
+    leftViewportContent_.setSize (juce::jmax (0, leftLayoutArea.getWidth()), juce::jmax (contentY, leftViewportRect_.getHeight()));
 
     auto hideAll = [this]
     {
@@ -1173,9 +1329,6 @@ void TriggerContentComponent::resized()
     resolumeMaxClips_.setVisible (resolumeExpanded_);
     resolumeGlobalOffset_.setVisible (resolumeExpanded_);
 
-    if (! left.isEmpty())
-        rightSectionRects_.add (left);
-
     getTriggersBtn_.setBounds (getTriggersRow);
     getTriggersBtn_.setVisible (true);
 
@@ -1189,6 +1342,19 @@ void TriggerContentComponent::resized()
     rightSectionRects_.add (right);
     triggerTable_.setBounds (right.reduced (3));
     updateTableColumnWidths();
+
+    easyLabel_.toFront (false);
+    triggerLabel_.toFront (false);
+    versionLabel_.toFront (false);
+    helpButton_.toFront (false);
+    tcLabel_.toFront (false);
+    fpsLabel_.toFront (false);
+    getTriggersBtn_.toFront (false);
+    settingsButton_.toFront (false);
+    quitButton_.toFront (false);
+    resolumeStatusLabel_.toFront (false);
+    statusLabel_.toFront (false);
+    leftViewport_.toBack();
 }
 
 void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
@@ -1200,10 +1366,9 @@ void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
 void TriggerContentComponent::updateTableColumnWidths()
 {
     auto& h = triggerTable_.getHeader();
+    constexpr int kTableScrollbarW = 8;
     int available = triggerTable_.getWidth();
-    auto& sb = triggerTable_.getVerticalScrollBar();
-    if (sb.isVisible())
-        available -= sb.getWidth();
+    available -= kTableScrollbarW;
     available = juce::jmax (300, available - 2);
 
     struct Col
@@ -1284,6 +1449,8 @@ void TriggerContentComponent::timerCallback()
     ltcInLevelBar_.setLevel (ltcInLevelSmoothed_);
     updateClipCountdowns();
     if (st.hasInputTc)
+        triggerTable_.repaint(); // refresh countdown column every tick when TC is live
+    if (st.hasInputTc)
     {
         hasLatchedTc_ = true;
         latchedTc_ = st.inputTc;
@@ -1305,6 +1472,7 @@ void TriggerContentComponent::timerCallback()
         }
     }
     evaluateAndFireTriggers();
+    processEndActions();
     const auto clips = clipCollector_.snapshot();
     int maxLayer = 0;
     for (const auto& c : clips)
@@ -1314,7 +1482,7 @@ void TriggerContentComponent::timerCallback()
                            + juce::String (" | LTC ") + st.ltcOutStatus,
                            st.hasInputTc ? juce::Colour::fromRGB (0x71, 0xd1, 0x7a)
                                          : juce::Colour::fromRGB (0xff, 0x78, 0x6e));
-    setResolumeStatusText ("Resolume | Layers: " + juce::String (maxLayer)
+    setResolumeStatusText ("Layers: " + juce::String (maxLayer)
                            + " | Clips: " + juce::String ((int) clips.size()),
                            juce::Colour::fromRGB (0xff, 0x78, 0x6e));
 }
@@ -1477,12 +1645,12 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
     {
         const bool fired = (currentTriggerKeys_.find ({ it.layer, it.clip }) != currentTriggerKeys_.end());
         if (! it.include) textColour = juce::Colour::fromRGB (0x53, 0x53, 0x5d);
-        else if (fired) textColour = juce::Colour::fromRGB (0x6a, 0x4e, 0x00);
-        else if (it.connected) textColour = juce::Colour::fromRGB (0x1e, 0x4a, 0x2a);
-        else textColour = juce::Colour::fromRGB (0x7a, 0x7a, 0x84);
+        else if (fired)        textColour = juce::Colour::fromRGB (0x20, 0x14, 0x00);
+        else if (it.connected) textColour = juce::Colour::fromRGB (0x0a, 0x20, 0x12);
+        else                   textColour = juce::Colour::fromRGB (0x7a, 0x7a, 0x84);
     }
     g.setColour (textColour);
-    g.setFont (juce::FontOptions ((columnId == 4 || columnId == 6 || columnId == 7) ? 14.0f : 13.0f));
+    g.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
     g.drawText (text, (columnId == 3 ? 12 : 6), 0, width - 8, height, juce::Justification::centredLeft, true);
 }
 
@@ -1491,7 +1659,50 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
     if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size()))
         return nullptr;
     const auto& dr = displayRows_[(size_t) rowNumber];
-    if (dr.isGroup || ! juce::isPositiveAndBelow (dr.clipIndex, (int) triggerRows_.size()))
+    if (dr.isGroup)
+    {
+        if (columnId == 5)
+        {
+            // Editable Range field on the group header row — syncs to all clips in the layer
+            auto* ed = dynamic_cast<InlineTextCell*> (existing);
+            if (ed == nullptr)
+                ed = new InlineTextCell();
+
+            const bool enabled = layerEnabled_[dr.layer];
+            const juce::Colour textCol = enabled
+                ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0)
+                : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
+            const juce::Font cellFont (juce::FontOptions (13.0f).withStyle ("Bold"));
+            ed->applyColourToAllText (textCol, true);
+            ed->applyFontToAllText (cellFont, true);
+
+            double rangeVal = 0.0;
+            for (const auto& row : triggerRows_)
+                if (row.layer == dr.layer) { rangeVal = row.triggerRangeSec; break; }
+            ed->setText (juce::String (rangeVal, 1), juce::dontSendNotification);
+
+            ed->onCommit = [this, rowNumber] (const juce::String& v)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                const auto& dr2 = displayRows_[(size_t) rowNumber];
+                if (! dr2.isGroup) return;
+                const double newRange = juce::jmax (0.0, v.trim().replaceCharacter (',', '.').getDoubleValue());
+                for (auto& c : triggerRows_)
+                    if (c.layer == dr2.layer)
+                        c.triggerRangeSec = newRange;
+                triggerTable_.updateContent();
+                triggerTable_.repaint();
+            };
+            return ed;
+        }
+
+        // For all other group-row columns, hide any stale clip-row component and remove it
+        if (existing != nullptr)
+            existing->setVisible (false);
+        return nullptr;
+    }
+
+    if (! juce::isPositiveAndBelow (dr.clipIndex, (int) triggerRows_.size()))
         return nullptr;
 
     auto& clip = triggerRows_[(size_t) dr.clipIndex];
@@ -1504,10 +1715,14 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
 
         const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
         juce::Colour textCol = juce::Colour::fromRGB (0xc0, 0xc0, 0xc0);
-        if (! clip.include) textCol = juce::Colour::fromRGB (0x47, 0x47, 0x50);
-        else if (fired) textCol = juce::Colour::fromRGB (0xff, 0xe0, 0x90);
-        else if (clip.connected) textCol = juce::Colour::fromRGB (0xb0, 0xe8, 0xa0);
-        ed->setColour (juce::TextEditor::textColourId, textCol);
+        if (! clip.include)      textCol = juce::Colour::fromRGB (0x47, 0x47, 0x50);
+        else if (fired)          textCol = juce::Colour::fromRGB (0x20, 0x14, 0x00);
+        else if (clip.connected) textCol = juce::Colour::fromRGB (0x0a, 0x20, 0x12);
+        // applyColourToAllText/applyFontToAllText update existing sections immediately;
+        // setColour(textColourId) alone only affects future inserts and is a no-op for existing text.
+        const juce::Font cellFont (juce::FontOptions (13.0f).withStyle ("Bold"));
+        ed->applyColourToAllText (textCol, true);
+        ed->applyFontToAllText (cellFont, true);
 
         if (columnId == 3) ed->setText (clip.name, juce::dontSendNotification);
         if (columnId == 5) ed->setText (juce::String (clip.triggerRangeSec, 1), juce::dontSendNotification);
@@ -1567,6 +1782,30 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             sendTestTrigger (c.layer, c.clip);
             for (auto& t : triggerRows_) if (t.layer == c.layer) t.connected = false;
             c.connected = true;
+
+            // Schedule end action (same logic as evaluateAndFireTriggers)
+            const juce::String eMode = c.endActionMode.trim().toLowerCase();
+            if (eMode == "col" || eMode == "lc")
+            {
+                int durFrames = 0;
+                if (parseTcToFrames (c.durationTc, 25, durFrames) && durFrames > 0)
+                {
+                    const double durSec = (double) durFrames / 25.0;
+                    PendingEndAction ea;
+                    ea.executeTs = juce::Time::getMillisecondCounterHiRes() * 0.001 + durSec;
+                    ea.mode  = eMode;
+                    ea.col   = c.endActionCol;
+                    ea.layer = c.endActionLayer;
+                    ea.clip  = c.endActionClip;
+                    pendingEndActions_[{ c.layer, c.clip }] = ea;
+                }
+            }
+            else
+            {
+                pendingEndActions_.erase ({ c.layer, c.clip });
+            }
+
+            triggerTable_.updateContent();
             triggerTable_.repaint();
         };
         return btn;
@@ -1679,6 +1918,9 @@ void TriggerContentComponent::applyTheme()
     lookAndFeel_->setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
     lookAndFeel_->setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
     lookAndFeel_->setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
+    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
+    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
 
     lookAndFeel_->setColour (juce::TextEditor::backgroundColourId, input_);
     lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (210, 220, 230));
@@ -1717,6 +1959,9 @@ void TriggerContentComponent::applyTheme()
     statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
     resolumeStatusLabel_.setJustificationType (juce::Justification::centredLeft);
     statusLabel_.setJustificationType (juce::Justification::centredRight);
+    // Pass mouse events through so the status bar click (openStatusMonitorWindow) reaches the parent
+    resolumeStatusLabel_.setInterceptsMouseClicks (false, false);
+    statusLabel_.setInterceptsMouseClicks (false, false);
     getTriggersBtn_.setColour (juce::TextButton::buttonColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
@@ -1907,8 +2152,8 @@ void TriggerContentComponent::evaluateAndFireTriggers()
 
         if (! inNow && ! crossed)
             continue;
-        if (inNow && wasIn)
-            continue; // do not retrigger while staying in the same window
+        if (wasIn)
+            continue; // already fired for this window pass — skip both "still inside" and exit-side crossing
 
         auto& best = bestByLayer[t.layer];
         if (best.index < 0)
@@ -1956,6 +2201,40 @@ void TriggerContentComponent::evaluateAndFireTriggers()
                 x.connected = false;
         t.connected = true;
 
+        // Schedule end action (Col / L-C mode), mirroring Python _schedule_end_action_for_trigger
+        {
+            const juce::String eMode = t.endActionMode.trim().toLowerCase();
+            if (eMode == "col" || eMode == "lc")
+            {
+                int durFrames = 0;
+                // durationTc is always stored in FPS_25 format — parse with fixed 25 to avoid
+                // live-fps mismatch causing parseTcToFrames to reject valid frame values
+                if (parseTcToFrames (t.durationTc, 25, durFrames) && durFrames > 0)
+                {
+                    const double durSec = (double) durFrames / 25.0;
+                    // Align to triggerTc, not to actual fire time.
+                    // The trigger may have fired early (within the range window), so offset
+                    // forward so the end action fires at wall-clock equivalent of triggerTc + dur.
+                    int trigFrames = 0;
+                    const double tcAlignOffset = parseTcToFrames (t.triggerTc, fps, trigFrames)
+                        ? juce::jmax (0.0, (double) (trigFrames - currentFrames) / (double) fps)
+                        : 0.0;
+                    PendingEndAction ea;
+                    ea.executeTs = now + tcAlignOffset + durSec;
+                    ea.mode      = eMode;
+                    ea.col       = t.endActionCol;
+                    ea.layer     = t.endActionLayer;
+                    ea.clip      = t.endActionClip;
+                    pendingEndActions_[{ t.layer, t.clip }] = ea;
+                }
+            }
+            else
+            {
+                // mode is "off" — remove any stale pending action for this clip
+                pendingEndActions_.erase ({ t.layer, t.clip });
+            }
+        }
+
         // Python parity: keep last fired clip highlighted (orange) per layer until next fire on that layer.
         for (auto it = currentTriggerKeys_.begin(); it != currentTriggerKeys_.end();)
         {
@@ -1964,7 +2243,62 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         }
         currentTriggerKeys_.insert ({ t.layer, t.clip });
     }
+    triggerTable_.updateContent();
     triggerTable_.repaint();
+}
+
+void TriggerContentComponent::processEndActions()
+{
+    if (pendingEndActions_.empty())
+        return;
+
+    const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+
+    juce::String ip = resolumeSendIp_.getText().trim();
+    if (ip.isEmpty())
+        ip = "127.0.0.1";
+    const int port = juce::jlimit (1, 65535, resolumeSendPort_.getText().trim().getIntValue());
+
+    for (auto it = pendingEndActions_.begin(); it != pendingEndActions_.end();)
+    {
+        const auto& ea = it->second;
+        if (ea.executeTs > now)
+        {
+            ++it;
+            continue;
+        }
+
+        // Build OSC address depending on mode
+        juce::String addr;
+        if (ea.mode == "col")
+        {
+            const int col = ea.col.getIntValue();
+            if (col > 0)
+                addr = "/composition/columns/" + juce::String (col) + "/connect";
+        }
+        else if (ea.mode == "lc")
+        {
+            const int lay = ea.layer.getIntValue();
+            const int clp = ea.clip.getIntValue();
+            if (lay > 0 && clp > 0)
+                addr = "/composition/layers/" + juce::String (lay) + "/clips/" + juce::String (clp) + "/connect";
+        }
+
+        if (addr.isNotEmpty())
+        {
+            juce::OSCSender s;
+            if (s.connect (ip, port))
+            {
+                juce::OSCMessage on  (addr); on.addInt32 (1);
+                juce::OSCMessage off (addr); off.addInt32 (0);
+                s.send (on);
+                s.send (off);
+                s.disconnect();
+            }
+        }
+
+        it = pendingEndActions_.erase (it);
+    }
 }
 
 void TriggerContentComponent::restartSelectedSource()
@@ -2291,20 +2625,55 @@ void TriggerContentComponent::setResolumeStatusText (const juce::String& text, j
 
 void TriggerContentComponent::openStatusMonitorWindow()
 {
-    juce::String details;
-    details << "Source: " << sourceCombo_.getText() << "\n";
-    details << "Input TC: " << tcLabel_.getText() << " (" << fpsLabel_.getText().fromFirstOccurrenceOf (": ", false, false) << ")\n";
-    details << "LTC Out: " << (ltcOutSwitch_.getState() ? "ON" : "OFF") << " | device: " << ltcOutDeviceCombo_.getText() << "\n";
-    details << "LTC Thru: " << (ltcThruDot_.getState() ? "ON" : "OFF") << "\n";
-    details << "MTC In: " << mtcInCombo_.getText() << "\n";
-    details << "ArtNet In: " << artnetInCombo_.getText() << " | " << artnetListenIpEditor_.getText() << "\n";
-    details << "OSC Listen: " << oscIpEditor_.getText() << ":" << oscPortEditor_.getText() << "\n";
-    details << "Timecode Status: " << statusLabel_.getText() << "\n";
-    details << "Resolume Status: " << resolumeStatusLabel_.getText();
+    // If already open, bring to front
+    if (statusMonitor_ != nullptr)
+    {
+        statusMonitor_->toFront (true);
+        return;
+    }
 
-    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
-                                            "Trigger Status Monitor",
-                                            details);
+    // Build a live getter lambda that reads current values every timer tick
+    auto getter = [this] (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals)
+    {
+        keys.clearQuick();
+        vals.clearQuick();
+
+        keys.add ("Source:");        vals.add (sourceCombo_.getText());
+        keys.add ("Input TC:");      vals.add (tcLabel_.getText()
+                                               + "  (" + fpsLabel_.getText().fromFirstOccurrenceOf (": ", false, false) + ")");
+        keys.add ("TC Status:");     vals.add (statusLabel_.getText());
+        keys.add ("Resolume:");      vals.add (resolumeStatusLabel_.getText());
+        keys.add ("LTC Out:");       vals.add ((ltcOutSwitch_.getState() ? "ON" : "OFF")
+                                               + juce::String ("  |  ") + ltcOutDeviceCombo_.getText());
+        keys.add ("LTC Ch / Rate:"); vals.add (ltcOutChannelCombo_.getText()
+                                               + "  |  " + ltcOutSampleRateCombo_.getText());
+        keys.add ("MTC In:");        vals.add (mtcInCombo_.getText());
+        keys.add ("ArtNet In:");     vals.add (artnetInCombo_.getText()
+                                               + "  |  " + artnetListenIpEditor_.getText());
+        keys.add ("OSC Listen:");    vals.add (oscIpEditor_.getText() + ":" + oscPortEditor_.getText());
+
+        // Last fired clips — one per layer, from currentTriggerKeys_
+        juce::String fired;
+        for (const auto& key : currentTriggerKeys_)
+        {
+            for (const auto& t : triggerRows_)
+            {
+                if (t.layer == key.first && t.clip == key.second)
+                {
+                    if (fired.isNotEmpty()) fired += ",  ";
+                    fired += "L" + juce::String (t.layer)
+                           + " C" + juce::String (t.clip)
+                           + " " + t.name
+                           + "  ->  " + t.triggerTc;
+                    break;
+                }
+            }
+        }
+        keys.add ("Last Fired:");    vals.add (fired.isEmpty() ? "-" : fired);
+    };
+
+    auto* win = new StatusMonitorWindow (std::move (getter), getParentComponent());
+    statusMonitor_ = win;
 }
 
 void TriggerContentComponent::sendTestTrigger (int layer, int clip)
@@ -2725,12 +3094,13 @@ juce::String TriggerContentComponent::secondsToTc (double sec, FrameRate fps)
 MainWindow::MainWindow()
     : juce::DocumentWindow ("Easy Trigger",
                             juce::Colours::black,
-                            juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton)
+                            juce::DocumentWindow::minimiseButton | juce::DocumentWindow::maximiseButton | juce::DocumentWindow::closeButton)
 {
     setColour (juce::ResizableWindow::backgroundColourId, juce::Colour::fromRGB (0x11, 0x12, 0x16));
     setUsingNativeTitleBar (true);
     setResizable (true, true);
-    setResizeLimits (980, 620, 1800, 1400);
+    // Min width: left panel (390) + margins (34) + table columns min sum (712) + scrollbar (8) + padding (16)
+    setResizeLimits (1160, 420, 10000, 10000);
     setContentOwned (new TriggerContentComponent(), true);
     const auto icon = loadTriggerAppIcon();
     if (icon.isValid())
@@ -2758,6 +3128,7 @@ void MainWindow::closeButtonPressed()
 {
     if (quittingFromMenu_)
     {
+        setVisible (false); // hide immediately to prevent white flash on fullscreen close
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
         return;
     }
@@ -2774,6 +3145,7 @@ void MainWindow::closeButtonPressed()
         return;
     }
 
+    setVisible (false); // hide immediately to prevent white flash on fullscreen close
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
 

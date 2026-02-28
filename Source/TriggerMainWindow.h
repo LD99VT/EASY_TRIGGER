@@ -195,6 +195,8 @@ private:
 class BridgeLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
+    int getDefaultScrollbarWidth() override { return 8; }
+
     void drawPopupMenuBackground (juce::Graphics& g, int, int) override
     {
         g.fillAll (findColour (juce::PopupMenu::backgroundColourId));
@@ -384,7 +386,6 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseUp (const juce::MouseEvent& event) override;
-    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
     bool closeToTrayEnabled() const noexcept { return closeToTray_; }
 
 private:
@@ -446,6 +447,7 @@ private:
     void queryResolume();
     void updateClipCountdowns();
     void evaluateAndFireTriggers();
+    void processEndActions();
     void startAudioDeviceScan();
     void onAudioScanComplete (const juce::Array<bridge::engine::AudioChoice>& inputs,
                               const juce::Array<bridge::engine::AudioChoice>& outputs);
@@ -485,6 +487,17 @@ private:
     int lastInputFrames_ { 0 };
     bool hasLastInputFrames_ { false };
     double lastTriggerFireTs_ { 0.0 };
+    juce::Component::SafePointer<juce::Component> statusMonitor_; // live status monitor window
+
+    struct PendingEndAction
+    {
+        double executeTs { 0.0 };   // absolute time (getMillisecondCounterHiRes * 0.001)
+        juce::String mode;          // "col" or "lc"
+        juce::String col;           // column number (mode == "col")
+        juce::String layer;         // layer number  (mode == "lc")
+        juce::String clip;          // clip number   (mode == "lc")
+    };
+    std::map<std::pair<int, int>, PendingEndAction> pendingEndActions_; // keyed by {layer, clip}
 
     juce::Font headerBold_;
     juce::Font headerLight_;
@@ -594,9 +607,8 @@ private:
     juce::Rectangle<int> statusLeftRect_;
     juce::Rectangle<int> statusRightRect_;
     juce::Rectangle<int> leftViewportRect_;
-    juce::ScrollBar leftScrollBar_ { false };
-    int leftScrollOffset_ { 0 };
-    int leftScrollContentHeight_ { 0 };
+    juce::Viewport leftViewport_;
+    juce::Component leftViewportContent_;
     std::unique_ptr<BridgeLookAndFeel> lookAndFeel_;
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };

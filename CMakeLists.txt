@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # ── Version ────────────────────────────────────────────────────────────────────
 # This is the SINGLE place to update the version.
 # All source files receive it via the auto-generated Version.h.
-project(EasyTrigger_JUCE VERSION 2.4.13 LANGUAGES CXX)
+project(EasyTrigger_JUCE VERSION 2.5.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,6 +30,14 @@ juce_add_gui_app(EasyTrigger
   MICROPHONE_PERMISSION_TEXT "Easy Trigger requires audio input access for LTC input."
 )
 juce_generate_juce_header(EasyTrigger)
+
+# macOS app bundle icon — copy .icns into Resources and set CFBundleIconFile
+if(APPLE)
+  set(_trigger_icns "${CMAKE_CURRENT_SOURCE_DIR}/Icon/Icon Trigger.icns")
+  target_sources(EasyTrigger PRIVATE "${_trigger_icns}")
+  set_source_files_properties("${_trigger_icns}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+  set_target_properties(EasyTrigger PROPERTIES MACOSX_BUNDLE_ICON_FILE "Icon Trigger.icns")
+endif()
 
 target_sources(EasyTrigger PRIVATE
   Source/Main.cpp

@@ -262,7 +262,15 @@ juce::Image loadTriggerAppIcon()
     if (! base.exists())
         return {};
 
-    auto icon = base.getChildFile ("Icon/Icon.png");
+#if JUCE_WINDOWS
+    auto icon = base.getChildFile ("Icon/Icon Trigger.ico");
+#elif JUCE_MAC
+    auto icon = base.getChildFile ("Icon/Icon Trigger.icns");
+#else
+    auto icon = base.getChildFile ("Icon/Icon Trigger.png");
+#endif
+    if (! icon.existsAsFile())
+        icon = base.getChildFile ("Icon/Icon.png");
     if (! icon.existsAsFile())
         icon = base.getChildFile ("Icons/App_Icon.png");
     if (! icon.existsAsFile())
@@ -323,7 +331,7 @@ public:
         setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
         setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
         setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-        setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         setBorder (juce::BorderSize<int> (0));
         setIndents (4, 0);
         setJustification (juce::Justification::centredLeft);
@@ -456,7 +464,7 @@ public:
         addAndMakeVisible (field2_);
 
         typeBtn_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
-        typeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        typeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         typeBtn_.onClick = [this]
         {
             type_ = (type_ == "col") ? "lc" : "col";
@@ -468,7 +476,7 @@ public:
         {
             e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
             e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
-            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
             e.setJustification (juce::Justification::centredLeft);
             e.setBorder (juce::BorderSize<int> (0));
             e.setIndents (4, 0);
@@ -625,7 +633,7 @@ private:
 
         explicit Content (StatusMonitorWindow& w) : win_ (w)
         {
-            const juce::Colour keyCol = juce::Colour::fromRGB (0x7a, 0x7a, 0x86);
+            const juce::Colour keyCol = juce::Colour::fromRGB (0x84, 0x84, 0x84);
             const juce::Colour valCol = juce::Colour::fromRGB (0xe0, 0xe0, 0xe0);
 
             for (int i = 0; i < kRows; ++i)
@@ -643,8 +651,8 @@ private:
 
             ok_.setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
             ok_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            ok_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-            ok_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+            ok_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
+            ok_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
             ok_.onClick = [this]
             {
                 juce::MessageManager::callAsync ([w = &win_] { delete w; });
@@ -704,7 +712,7 @@ public:
         addAndMakeVisible (value2_);
 
         modeBtn_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
-        modeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        modeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         modeBtn_.onClick = [this]
         {
             if (mode_ == "off") mode_ = "col";
@@ -718,7 +726,7 @@ public:
         {
             e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
             e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
-            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
             e.setJustification (juce::Justification::centredLeft);
             e.setBorder (juce::BorderSize<int> (0));
             e.setIndents (4, 0); // 0 top-indent lets centredLeft do vertical centering
@@ -878,20 +886,20 @@ TriggerContentComponent::TriggerContentComponent()
 
     easyLabel_.setText ("EASY ", juce::dontSendNotification);
     easyLabel_.setJustificationType (juce::Justification::centredLeft);
-    easyLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
+    easyLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xce, 0xce, 0xce));
     easyLabel_.setFont (headerBold_.withHeight (32.0f));
     triggerLabel_.setText ("TRIGGER", juce::dontSendNotification);
     triggerLabel_.setJustificationType (juce::Justification::centredLeft);
-    triggerLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xa1, 0xa5, 0xac));
+    triggerLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0x8a, 0x8a, 0x8a));
     triggerLabel_.setFont (headerLight_.withHeight (32.0f));
     versionLabel_.setJustificationType (juce::Justification::centredLeft);
-    versionLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0x8b, 0x91, 0x9a));
+    versionLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0x8a, 0x8a, 0x8a));
     versionLabel_.setFont (juce::FontOptions (12.0f));
     tcLabel_.setText ("00:00:00:00", juce::dontSendNotification);
     tcLabel_.setJustificationType (juce::Justification::centred);
     tcLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
     tcLabel_.setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
-    tcLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (220, 216, 203));
+    tcLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
     tcLabel_.setFont (mono_.withHeight (68.0f));
     fpsLabel_.setColour (juce::Label::textColourId, juce::Colours::white);
 
@@ -913,7 +921,7 @@ TriggerContentComponent::TriggerContentComponent()
     };
     leftViewportContent_.addAndMakeVisible (sourceExpandBtn_);
     leftViewportContent_.addAndMakeVisible (sourceCombo_);
-    sourceHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    sourceHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
     sourceHeaderLabel_.setFont (juce::FontOptions (14.0f));
     sourceHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     sourceHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 6, 0, 0));
@@ -924,7 +932,7 @@ TriggerContentComponent::TriggerContentComponent()
     };
     for (auto* l : sourceRowLabels)
     {
-        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
+        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         l->setJustificationType (juce::Justification::centredLeft);
         leftViewportContent_.addAndMakeVisible (*l);
     }
@@ -981,7 +989,7 @@ TriggerContentComponent::TriggerContentComponent()
     styleSlider (ltcOutLevelSlider_, true);
 
     outLtcHeaderLabel_.setColour (juce::Label::backgroundColourId, row_);
-    outLtcHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    outLtcHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
     outLtcHeaderLabel_.setFont (juce::FontOptions (14.0f));
     outLtcHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     outLtcHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 42, 0, 0));
@@ -998,7 +1006,7 @@ TriggerContentComponent::TriggerContentComponent()
     };
     leftViewportContent_.addAndMakeVisible (ltcOutSwitch_);
     leftViewportContent_.addAndMakeVisible (ltcThruDot_);
-    ltcThruLbl_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xd0, 0xd0, 0xd0));
+    ltcThruLbl_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
     ltcThruLbl_.setJustificationType (juce::Justification::centredLeft);
     leftViewportContent_.addAndMakeVisible (ltcThruLbl_);
 
@@ -1066,8 +1074,8 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); updateWindowHeight(); resized(); repaint(); };
     settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
     settingsButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
     settingsButton_.onClick = [this] { openSettingsMenu(); };
     quitButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
     quitButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
@@ -1105,7 +1113,7 @@ TriggerContentComponent::TriggerContentComponent()
     h.addListener (this);
     h.setStretchToFitActive (false);
     h.setColour (juce::TableHeaderComponent::backgroundColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-    h.setColour (juce::TableHeaderComponent::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    h.setColour (juce::TableHeaderComponent::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
 
     clipCollector_.onChanged = [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
     {
@@ -1152,8 +1160,8 @@ TriggerContentComponent::TriggerContentComponent()
 
     setSize (1240, 820);
     resized();
-    setResolumeStatusText ("Resolume idle", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
-    setTimecodeStatusText ("SAFE START", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    setResolumeStatusText ("Resolume idle", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+    setTimecodeStatusText ("SAFE START", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     loadRuntimePrefs();
     startAudioDeviceScan();
     startTimerHz (60);
@@ -1759,8 +1767,8 @@ void TriggerContentComponent::timerCallback()
 
     setTimecodeStatusText ((st.hasInputTc ? "RUNNING" : "STOPPED - no timecode")
                            + juce::String (" | LTC ") + st.ltcOutStatus,
-                           st.hasInputTc ? juce::Colour::fromRGB (0x71, 0xd1, 0x7a)
-                                         : juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                           st.hasInputTc ? juce::Colour::fromRGB (0x51, 0xc8, 0x7b)
+                                         : juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     setResolumeStatusText ("Layers: " + juce::String (maxLayer)
                            + " | Clips: " + juce::String ((int) clips.size()),
                            juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
@@ -1890,7 +1898,7 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
             text = layerName.isNotEmpty() ? layerName : ("Layer " + juce::String (dr.layer));
         }
 
-        g.setColour (enabled ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0) : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5));
+        g.setColour (enabled ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0) : juce::Colour::fromRGB (0xa3, 0xa3, 0xa3));
         g.setFont (juce::FontOptions (13.0f).withStyle ("bold"));
         g.drawText (text, 6, 0, width - 8, height, juce::Justification::centredLeft, true);
         return;
@@ -1934,7 +1942,7 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         if (! it.include) textColour = juce::Colour::fromRGB (0x53, 0x53, 0x5d);
         else if (fired)        textColour = juce::Colour::fromRGB (0x20, 0x14, 0x00);
         else if (it.connected) textColour = juce::Colour::fromRGB (0x0a, 0x20, 0x12);
-        else                   textColour = juce::Colour::fromRGB (0x7a, 0x7a, 0x84);
+        else                   textColour = juce::Colour::fromRGB (0x8b, 0x8b, 0x8b);
     }
     g.setColour (textColour);
     g.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
@@ -2296,13 +2304,13 @@ void TriggerContentComponent::applyTheme()
 {
     lookAndFeel_ = std::make_unique<BridgeLookAndFeel>();
     lookAndFeel_->setColour (juce::ComboBox::backgroundColourId, input_);
-    lookAndFeel_->setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (210, 220, 230));
+    lookAndFeel_->setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
     lookAndFeel_->setColour (juce::ComboBox::outlineColourId, row_);
     lookAndFeel_->setColour (juce::ComboBox::arrowColourId, juce::Colour::fromRGB (0x9a, 0xa1, 0xac));
 
     // Dropdown list style (same as Bridge).
     lookAndFeel_->setColour (juce::PopupMenu::backgroundColourId, input_);
-    lookAndFeel_->setColour (juce::PopupMenu::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    lookAndFeel_->setColour (juce::PopupMenu::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
     lookAndFeel_->setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
     lookAndFeel_->setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
     lookAndFeel_->setColour (juce::PopupMenu::headerTextColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
@@ -2316,7 +2324,7 @@ void TriggerContentComponent::applyTheme()
     leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
 
     lookAndFeel_->setColour (juce::TextEditor::backgroundColourId, input_);
-    lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (210, 220, 230));
+    lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
     lookAndFeel_->setColour (juce::TextEditor::outlineColourId, row_);
     juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel_.get());
     setLookAndFeel (lookAndFeel_.get());
@@ -2326,7 +2334,7 @@ void TriggerContentComponent::applyTheme()
         e.setColour (juce::TextEditor::backgroundColourId, input_);
         e.setColour (juce::TextEditor::outlineColourId, row_);
         e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x6a, 0x6a, 0x6a));
-        e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         e.setJustification (juce::Justification::centredLeft);
         e.setIndents (8, 0);
     };
@@ -2337,19 +2345,19 @@ void TriggerContentComponent::applyTheme()
     for (auto* l : { &resolumeHeader_,
                      &resSendIpLbl_, &resSendPortLbl_, &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_, &resGlobalOffsetLbl_ })
     {
-        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xba, 0xc5, 0xd6));
+        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         l->setJustificationType (juce::Justification::centredLeft);
     }
     for (auto* h : { &resolumeHeader_ })
     {
-        h->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+        h->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
         h->setFont (juce::FontOptions (14.0f));
         h->setJustificationType (juce::Justification::centredLeft);
     }
     resolumeStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    resolumeStatusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    resolumeStatusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     statusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     resolumeStatusLabel_.setJustificationType (juce::Justification::centredLeft);
     statusLabel_.setJustificationType (juce::Justification::centredRight);
     // Pass mouse events through so the status bar click (openStatusMonitorWindow) reaches the parent
@@ -2357,12 +2365,12 @@ void TriggerContentComponent::applyTheme()
     statusLabel_.setInterceptsMouseClicks (false, false);
     getTriggersBtn_.setColour (juce::TextButton::buttonColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
-    getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-    getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
     createCustomBtn_.setColour (juce::TextButton::buttonColourId,   row_);
     createCustomBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
-    createCustomBtn_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-    createCustomBtn_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    createCustomBtn_.setColour (juce::TextButton::textColourOffId,  juce::Colours::white);
+    createCustomBtn_.setColour (juce::TextButton::textColourOnId,   juce::Colours::white);
 }
 
 void TriggerContentComponent::openHelpPage()
@@ -2785,7 +2793,7 @@ void TriggerContentComponent::ltcOutputApplyLoop()
             juce::MessageManager::callAsync ([safeThis, err]
             {
                 if (safeThis != nullptr)
-                    safeThis->setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+                    safeThis->setTimecodeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
             });
         }
     }
@@ -2847,7 +2855,7 @@ void TriggerContentComponent::onInputSettingsChanged()
     restartSelectedSource();
 
     if (err.isNotEmpty())
-        setTimecodeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        setTimecodeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
 }
 
 void TriggerContentComponent::startAudioDeviceScan()
@@ -3030,7 +3038,7 @@ void TriggerContentComponent::styleCombo (juce::ComboBox& c)
 {
     c.setColour (juce::ComboBox::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
     c.setColour (juce::ComboBox::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
-    c.setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    c.setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
 }
 
 void TriggerContentComponent::styleEditor (juce::TextEditor& e)
@@ -3038,7 +3046,7 @@ void TriggerContentComponent::styleEditor (juce::TextEditor& e)
     e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
     e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
     e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x56, 0x5f, 0x6b));
-    e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+    e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
     e.setJustification (juce::Justification::centredLeft);
     e.setIndents (8, 2);
 }
@@ -3347,18 +3355,18 @@ void TriggerContentComponent::queryResolume()
     const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "0.0.0.0";
     if (! clipCollector_.startListening (listenIp, juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()), err))
     {
-        setResolumeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
         return;
     }
     const auto sendIp = resolumeSendIp_.getText().trim().isNotEmpty() ? resolumeSendIp_.getText().trim() : "127.0.0.1";
     if (! clipCollector_.configureSender (sendIp, juce::jlimit (1, 65535, resolumeSendPort_.getText().getIntValue()), err))
     {
-        setResolumeStatusText (err, juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
         return;
     }
     clipCollector_.queryClips (juce::jlimit (1, 64, resolumeMaxLayers_.getText().getIntValue()),
                                juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue()));
-    setResolumeStatusText ("Resolume query sent", juce::Colour::fromRGB (0x71, 0xd1, 0x7a));
+    setResolumeStatusText ("Resolume query sent", juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
 }
 
 void TriggerContentComponent::openSettingsMenu()
@@ -3396,13 +3404,13 @@ void TriggerContentComponent::openSettingsMenu()
                              case 6: safe->loadConfigFrom (kConfigModeAll); break;
                              case 7:
                                  safe->startAudioDeviceScan();
-                                 safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                 safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              case 10:
                                  if (safe->hasCustomGroup())
                                  {
                                      safe->deleteCustomGroup();
-                                     safe->setTimecodeStatusText ("Custom triggers cleared", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                     safe->setTimecodeStatusText ("Custom triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  }
                                  break;
                              case 11:
@@ -3419,20 +3427,20 @@ void TriggerContentComponent::openSettingsMenu()
                                  safe->rebuildDisplayRows();
                                  safe->triggerTable_.updateContent();
                                  safe->triggerTable_.repaint();
-                                 safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                 safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              }
                              case 8:
                                  safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
                                  safe->saveRuntimePrefs();
                                  safe->setTimecodeStatusText (safe->autoLoadOnStartup_ ? "Load on startup ON" : "Load on startup OFF",
-                                                              juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                                              juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              case 9:
                                  safe->closeToTray_ = ! safe->closeToTray_;
                                  safe->saveRuntimePrefs();
                                  safe->setTimecodeStatusText (safe->closeToTray_ ? "Close to tray ON" : "Close to tray OFF",
-                                                              juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                                              juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              default:
                                  break;
@@ -3609,11 +3617,11 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
     {
         lastConfigFile_ = file;
         saveRuntimePrefs();
-        setTimecodeStatusText ("Config saved: " + file.getFileName(), juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+        setTimecodeStatusText ("Config saved: " + file.getFileName(), juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     }
     else
     {
-        setTimecodeStatusText ("Failed to save config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        setTimecodeStatusText ("Failed to save config", juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
     }
 }
 
@@ -3622,7 +3630,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
     auto parsed = bridge::core::ConfigStore::loadJsonFile (file);
     if (! parsed.has_value() || ! parsed->isObject())
     {
-        setTimecodeStatusText ("Invalid config", juce::Colour::fromRGB (0xff, 0x9f, 0x43));
+        setTimecodeStatusText ("Invalid config", juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
         return;
     }
 
@@ -3747,7 +3755,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
     resized();
     lastConfigFile_ = file;
     saveRuntimePrefs();
-    setTimecodeStatusText ("Config loaded: " + file.getFileName(), juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+    setTimecodeStatusText ("Config loaded: " + file.getFileName(), juce::Colour::fromRGB (0xec, 0x48, 0x3c));
 }
 
 juce::String TriggerContentComponent::secondsToTc (double sec, FrameRate fps)

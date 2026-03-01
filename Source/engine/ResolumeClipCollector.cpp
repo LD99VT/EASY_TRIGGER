@@ -22,19 +22,25 @@ double parseNumericArg (const juce::OSCMessage& msg)
     return 0.0;
 }
 
+// Resolume sends clip offset as milliseconds via OSC.
 double resolumeOffsetToSeconds (double raw)
 {
     return raw / 1000.0;
 }
 
+// Resolume sends clip duration in different units depending on version:
+//   - Avenue / Arena < 7: normalised 0.0-1.0 where 1.0 = 604800 s (7 days)
+//   - Arena >= 7:         absolute milliseconds (> 604800.0 after conversion)
+//   - Some builds:        absolute seconds (1.0 < v <= 604800.0)
+// The three branches below handle all three cases defensively.
 double resolumeDurationToSeconds (double raw)
 {
     const auto v = juce::jmax (0.0, raw);
     if (v >= 0.0 && v <= 1.0)
-        return v * 604800.0;
+        return v * 604800.0;    // normalised [0,1] → convert to seconds (max = 1 week)
     if (v > 604800.0)
-        return v / 1000.0;
-    return v;
+        return v / 1000.0;      // milliseconds → seconds
+    return v;                   // already in seconds
 }
 
 }
@@ -52,6 +58,11 @@ ResolumeClipCollector::~ResolumeClipCollector()
 
 bool ResolumeClipCollector::startListening (const juce::String& listenIp, int listenPort, juce::String& errorOut)
 {
+    // NOTE: juce::OSCReceiver::connect() binds to all interfaces (0.0.0.0).
+    // The listenIp parameter is kept in the API for future use, but JUCE does
+    // not expose a per-interface bind for OSCReceiver. If you need to restrict
+    // the listening interface, replace OSCReceiver with a raw DatagramSocket
+    // (see OscInput.cpp for an example).
     juce::ignoreUnused (listenIp);
     stopListening();
     if (! connect (listenPort))

@@ -17,14 +17,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-
-      - name: Verify submodule
-        shell: pwsh
-        run: |
-          if (!(Test-Path "third_party/SuperTimecodeConverter/TimecodeCore.h")) {
-            throw "Submodule missing: third_party/SuperTimecodeConverter"
-          }
 
       - name: Configure
         run: cmake --preset windows-msvc
@@ -53,10 +45,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-
-      - name: Verify submodule
-        run: test -f third_party/SuperTimecodeConverter/TimecodeCore.h || (echo "Submodule missing" && exit 1)
 
       - name: Configure
         run: cmake --preset macos-universal

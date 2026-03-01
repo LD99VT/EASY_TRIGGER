@@ -1,9 +1,19 @@
 cmake_minimum_required(VERSION 3.22)
 
+# ── Version ────────────────────────────────────────────────────────────────────
+# This is the SINGLE place to update the version.
+# All source files receive it via the auto-generated Version.h.
 project(EasyTrigger_JUCE VERSION 2.4.13 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Generate Version.h from Version.h.in, substituting @PROJECT_VERSION_*@ tokens.
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/Source/core/Version.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h"
+  @ONLY
+)
 
 include(FetchContent)
 
@@ -34,13 +44,17 @@ target_sources(EasyTrigger PRIVATE
   Source/engine/BridgeEngine.h
   Source/engine/OscInput.cpp
   Source/engine/OscInput.h
-  Source/core/BridgeVersion.h
+  Source/core/Version.h.in
   Source/core/Timecode.cpp
   Source/core/Timecode.h
   Source/core/ClockState.cpp
   Source/core/ClockState.h
   Source/core/ConfigStore.cpp
   Source/core/ConfigStore.h
+)
+
+target_include_directories(EasyTrigger PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
 target_compile_definitions(EasyTrigger PRIVATE

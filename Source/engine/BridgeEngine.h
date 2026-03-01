@@ -5,7 +5,7 @@
 #include "inputs/ArtnetInput.h"
 #include "inputs/LtcInput.h"
 #include "inputs/MtcInput.h"
-#include "inputs/OscInput.h"
+#include "OscInput.h"
 #include "outputs/ArtnetOutput.h"
 #include "outputs/LtcOutput.h"
 #include "outputs/MtcOutput.h"

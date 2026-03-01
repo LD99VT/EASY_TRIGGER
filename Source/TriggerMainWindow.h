@@ -9,6 +9,7 @@
 #include <atomic>
 #include <thread>
 
+#include "Version.h"
 #include "core/Timecode.h"
 #include "engine/BridgeEngine.h"
 #include "engine/ResolumeClipCollector.h"
@@ -520,7 +521,7 @@ private:
 
     juce::Label easyLabel_ { {}, "EASY" };
     juce::Label triggerLabel_ { {}, "TRIGGER" };
-    juce::Label versionLabel_ { {}, "v2.4.13" };
+    juce::Label versionLabel_ { {}, juce::String ("v") + bridge::version::kAppVersion };
     HelpCircleButton helpButton_;
     juce::Label tcLabel_ { {}, "00:00:00:00" };
     juce::Label fpsLabel_ { {}, "TC FPS: --" };

@@ -1,6 +1,6 @@
 #include "App.h"
 #include "TriggerMainWindow.h"
-#include "core/BridgeVersion.h"
+#include "Version.h"
 
 namespace trigger
 {

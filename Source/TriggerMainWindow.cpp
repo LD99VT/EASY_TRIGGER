@@ -1,5 +1,5 @@
 #include "TriggerMainWindow.h"
-#include "core/BridgeVersion.h"
+#include "Version.h"
 #include "core/ConfigStore.h"
 #include <algorithm>
 #include <array>

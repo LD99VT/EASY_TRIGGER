@@ -384,6 +384,177 @@ public:
     }
 };
 
+class InlineDeleteButtonCell final : public juce::Button
+{
+public:
+    std::function<void()> onPress;
+    InlineDeleteButtonCell() : juce::Button ("del")
+    {
+        onClick = [this] { if (onPress) onPress(); };
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
+    {
+        auto b = getLocalBounds().toFloat();
+        const float side = juce::jmin (28.0f, juce::jmin (b.getWidth() - 6.0f, b.getHeight() - 6.0f));
+        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (b.getCentre());
+        auto fill   = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
+        auto stroke  = juce::Colour::fromRGB (0x4a, 0x4a, 0x4a);
+        auto icon    = juce::Colour::fromRGB (0x90, 0x90, 0x90);
+        if (isHovered) fill = fill.brighter (0.12f);
+        if (isDown)    fill = fill.brighter (0.18f);
+        g.setColour (fill);
+        g.fillRoundedRectangle (sq, 5.0f);
+        g.setColour (stroke);
+        g.drawRoundedRectangle (sq, 5.0f, 1.0f);
+        const float cx = sq.getCentreX();
+        const float cy = sq.getCentreY();
+        g.setColour (icon);
+        g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));
+    }
+};
+
+class InlineAddButtonCell final : public juce::Button
+{
+public:
+    std::function<void()> onPress;
+    InlineAddButtonCell() : juce::Button ("add")
+    {
+        onClick = [this] { if (onPress) onPress(); };
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
+    {
+        auto b = getLocalBounds().toFloat();
+        const float side = juce::jmin (28.0f, juce::jmin (b.getWidth() - 6.0f, b.getHeight() - 6.0f));
+        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (b.getCentre());
+        auto fill   = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
+        auto stroke  = juce::Colour::fromRGB (0x4a, 0x4a, 0x4a);
+        auto icon    = juce::Colour::fromRGB (0x90, 0x90, 0x90);
+        if (isHovered) fill = fill.brighter (0.12f);
+        if (isDown)    fill = fill.brighter (0.18f);
+        g.setColour (fill);   g.fillRoundedRectangle (sq, 5.0f);
+        g.setColour (stroke); g.drawRoundedRectangle (sq, 5.0f, 1.0f);
+        const float cx = sq.getCentreX(), cy = sq.getCentreY();
+        g.setColour (icon);
+        g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));
+        g.fillRect (juce::Rectangle<float> (cx - 1.0f, cy - 5.5f,  2.0f, 11.0f));
+    }
+};
+
+// Custom trigger source selector: Col toggle (Col / L/C) + inline number fields
+class InlineCustomTypeCell final : public juce::Component
+{
+public:
+    std::function<void(const juce::String&, const juce::String&, const juce::String&, const juce::String&)> onChanged;
+    // callback params: type("col"/"lc"), sourceCol, sourceLayer, sourceClip
+
+    InlineCustomTypeCell()
+    {
+        addAndMakeVisible (typeBtn_);
+        addAndMakeVisible (field1_);
+        addAndMakeVisible (field2_);
+
+        typeBtn_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
+        typeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+        typeBtn_.onClick = [this]
+        {
+            type_ = (type_ == "col") ? "lc" : "col";
+            applyTypeToUi();
+            emitChanged();
+        };
+
+        auto styleField = [] (juce::TextEditor& e)
+        {
+            e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
+            e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
+            e.setJustification (juce::Justification::centredLeft);
+            e.setBorder (juce::BorderSize<int> (0));
+            e.setIndents (4, 0);
+            e.setFont (juce::FontOptions (13.0f));
+            e.onReturnKey = [&e] { e.giveAwayKeyboardFocus(); };
+        };
+        styleField (field1_);
+        styleField (field2_);
+        field1_.onFocusLost = [this] { emitChanged(); };
+        field2_.onFocusLost = [this] { emitChanged(); };
+    }
+
+    void setState (const juce::String& type, const juce::String& col,
+                   const juce::String& layer, const juce::String& clip)
+    {
+        type_  = (type == "lc") ? "lc" : "col";
+        col_   = col;
+        layer_ = layer;
+        clip_  = clip;
+        field1_.setText (type_ == "col" ? col_ : layer_, juce::dontSendNotification);
+        field2_.setText (clip_, juce::dontSendNotification);
+        applyTypeToUi();
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (1, 4);
+        typeBtn_.setBounds (r.removeFromLeft (62));
+        r.removeFromLeft (4);
+        if (type_ == "lc")
+        {
+            const int w = juce::jmin (52, juce::jmax (38, (r.getWidth() - 4) / 2));
+            field1_.setBounds (r.removeFromLeft (w));
+            r.removeFromLeft (4);
+            field2_.setBounds (r.removeFromLeft (w));
+        }
+        else
+        {
+            field1_.setBounds (r.removeFromLeft (juce::jmin (66, r.getWidth())));
+            field2_.setBounds (0, 0, 0, 0);
+        }
+    }
+
+private:
+    void applyTypeToUi()
+    {
+        if (type_ == "lc")
+        {
+            typeBtn_.setButtonText ("L/C");
+            field1_.setVisible (true);
+            field2_.setVisible (true);
+        }
+        else
+        {
+            type_ = "col";
+            typeBtn_.setButtonText ("Col");
+            field1_.setVisible (true);
+            field2_.setVisible (false);
+        }
+        resized();
+    }
+
+    void emitChanged()
+    {
+        if (type_ == "col")
+        {
+            col_   = field1_.getText().trim();
+            layer_.clear();
+            clip_.clear();
+        }
+        else
+        {
+            layer_ = field1_.getText().trim();
+            clip_  = field2_.getText().trim();
+            col_.clear();
+        }
+        if (onChanged) onChanged (type_, col_, layer_, clip_);
+    }
+
+    juce::TextButton typeBtn_;
+    juce::TextEditor field1_;
+    juce::TextEditor field2_;
+    juce::String type_  { "col" };
+    juce::String col_, layer_, clip_;
+};
+
 // ─── Live Trigger Status Monitor window ─────────────────────────────────────
 class StatusMonitorWindow final : public juce::DocumentWindow,
                                   private juce::Timer
@@ -884,6 +1055,12 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeMaxClips_.setText ("32");
     resolumeGlobalOffset_.setText ("00:00:00:00");
     getTriggersBtn_.onClick = [this] { queryResolume(); };
+    createCustomBtn_.onClick = [this]
+    {
+        if (! hasCustomGroup())
+            addCustomColTrigger();
+        createCustomBtn_.setEnabled (! hasCustomGroup());
+    };
     resolumeExpandBtn_.setExpanded (false);
     helpButton_.onClick = [this] { openHelpPage(); };
     resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); updateWindowHeight(); resized(); repaint(); };
@@ -966,6 +1143,7 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (resolumeMaxClips_);
     leftViewportContent_.addAndMakeVisible (resolumeGlobalOffset_);
     addAndMakeVisible (getTriggersBtn_);
+    addAndMakeVisible (createCustomBtn_);
     addAndMakeVisible (settingsButton_);
     addAndMakeVisible (quitButton_);
     addAndMakeVisible (triggerTable_);
@@ -1036,7 +1214,10 @@ void TriggerContentComponent::updateWindowHeight()
         const int minContent = calcPreferredHeight();
         const int minTotal = minContent + chrome;
 
-        window->setResizeLimits (1160, minTotal, 1800, 1400);
+        constexpr int kBaseMinW  = 1160;
+        constexpr int kCustomExtraW = 184 + 42;
+        const int minW = kBaseMinW + (hasCustomGroup() ? kCustomExtraW : 0);
+        window->setResizeLimits (minW, minTotal, 1800, 1400);
 
         if (window->getHeight() < minTotal)
             window->setSize (window->getWidth(), minTotal);
@@ -1129,11 +1310,13 @@ void TriggerContentComponent::resized()
     fpsLabel_.setBounds (fpsRect);
     left.removeFromTop (4);
 
-    auto footerArea = left.removeFromBottom (88);
+    auto footerArea = left.removeFromBottom (132);
     auto actionRow = footerArea.removeFromBottom (40);
     footerArea.removeFromBottom (4);
+    auto createCustomRow = footerArea.removeFromBottom (40);
+    footerArea.removeFromBottom (4);
     auto getTriggersRow = footerArea.removeFromBottom (40);
-    footerArea.removeFromBottom (4); // 4px top gap above Get Triggers
+    footerArea.removeFromBottom (4); // 4px top gap above Get Clips
     leftViewportRect_ = left;
     leftViewport_.setBounds (leftViewportRect_);
     const auto src = sourceCombo_.getSelectedId();
@@ -1351,6 +1534,9 @@ void TriggerContentComponent::resized()
 
     getTriggersBtn_.setBounds (getTriggersRow);
     getTriggersBtn_.setVisible (true);
+    createCustomBtn_.setBounds (createCustomRow);
+    createCustomBtn_.setVisible (true);
+    createCustomBtn_.setEnabled (! hasCustomGroup());
 
     auto buttons = actionRow;
     settingsButton_.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
@@ -1370,6 +1556,7 @@ void TriggerContentComponent::resized()
     tcLabel_.toFront (false);
     fpsLabel_.toFront (false);
     getTriggersBtn_.toFront (false);
+    createCustomBtn_.toFront (false);
     settingsButton_.toFront (false);
     quitButton_.toFront (false);
     resolumeStatusLabel_.toFront (false);
@@ -1387,9 +1574,15 @@ void TriggerContentComponent::updateTableColumnWidths()
 {
     auto& h = triggerTable_.getHeader();
     constexpr int kTableScrollbarW = 8;
+    constexpr int kCustomColsW = 184 + 42;   // cols 10, 11 fixed widths
     int available = triggerTable_.getWidth();
     available -= kTableScrollbarW;
-    available = juce::jmax (300, available - 2);
+    available -= 2;
+    // If custom columns (10-12) are present they are fixed-width; subtract them
+    // so cols 1-9 only fill the remaining portion and the custom cols stay visible.
+    if (h.getIndexOfColumnId (10, false) >= 0)
+        available -= kCustomColsW;
+    available = juce::jmax (200, available);
 
     struct Col
     {
@@ -1405,6 +1598,7 @@ void TriggerContentComponent::updateTableColumnWidths()
     int endActionMin = 72;
     for (const auto& clip : triggerRows_)
     {
+        if (clip.isCustom) continue;
         if (clip.endActionMode == "lc")  { endActionMin = 160; break; }
         if (clip.endActionMode == "col")   endActionMin = 120;
     }
@@ -1461,6 +1655,30 @@ void TriggerContentComponent::updateTableColumnWidths()
 
     for (size_t i = 0; i < cols.size(); ++i)
         h.setColumnWidth (cols[i].id, widths[i]);
+}
+
+void TriggerContentComponent::addCustomColumns()
+{
+    auto& h = triggerTable_.getHeader();
+    if (h.getIndexOfColumnId (10, false) >= 0)
+        return; // already present
+    const int f = juce::TableHeaderComponent::notResizable;
+    h.addColumn ("Custom Trigger", 10, 184, 184, 184, f);
+    h.addColumn ("",               11,  42,  42,  42, f);
+
+    constexpr int kExtraW = 184 + 42;
+    if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
+        w->setSize (juce::jmin (1800, w->getWidth() + kExtraW), w->getHeight());
+}
+
+void TriggerContentComponent::removeCustomColumns()
+{
+    constexpr int kExtraW = 184 + 42;
+    auto& h = triggerTable_.getHeader();
+    h.removeColumn (10);
+    h.removeColumn (11);
+    if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
+        w->setSize (juce::jmax (1160, w->getWidth() - kExtraW), w->getHeight());
 }
 
 void TriggerContentComponent::tableColumnsResized (juce::TableHeaderComponent*)
@@ -1658,6 +1876,8 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         }
         else if (columnId == 3)
         {
+            // Custom group header: name rendered by InlineTextCell component in refreshComponentForCell
+            if (dr.layer == 0) return;
             // Filter out Resolume default names: "", "#", "Layer #", "Layer #N"
             auto isCustomName = [] (const juce::String& s) -> bool
             {
@@ -1728,6 +1948,50 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
     const auto& dr = displayRows_[(size_t) rowNumber];
     if (dr.isGroup)
     {
+        if (dr.layer == 0)
+        {
+            // Custom group header: col 10 = [+] add, col 11 = [-] del group
+            if (columnId == 10)
+            {
+                auto* btn = dynamic_cast<InlineAddButtonCell*> (existing);
+                if (btn == nullptr) btn = new InlineAddButtonCell();
+                btn->onPress = [this] { addCustomColTrigger(); };
+                return btn;
+            }
+            if (columnId == 11)
+            {
+                auto* btn = dynamic_cast<InlineDeleteButtonCell*> (existing);
+                if (btn == nullptr) btn = new InlineDeleteButtonCell();
+                btn->onPress = [this] { deleteCustomGroup(); };
+                return btn;
+            }
+            // Col 3: editable custom group name
+            if (columnId == 3)
+            {
+                auto* ed = dynamic_cast<InlineTextCell*> (existing);
+                if (ed == nullptr) ed = new InlineTextCell();
+                const bool enabled = layerEnabled_[0];
+                const juce::Colour textCol = enabled
+                    ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0)
+                    : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
+                ed->applyColourToAllText (textCol, true);
+                ed->applyFontToAllText (juce::Font (juce::FontOptions (13.0f).withStyle ("bold")), true);
+                ed->setText (customGroupName_, juce::dontSendNotification);
+                ed->onCommit = [this] (const juce::String& v)
+                {
+                    customGroupName_ = v.trim().isNotEmpty() ? v.trim() : juce::String ("Custom Trigger");
+                    triggerTable_.repaint();
+                };
+                return ed;
+            }
+            // Col 5 (Range) falls through; all other cols hide stale components
+            if (columnId != 5)
+            {
+                if (existing != nullptr) existing->setVisible (false);
+                return nullptr;
+            }
+        }
+
         if (columnId == 5)
         {
             // Editable Range field on the group header row — syncs to all clips in the layer
@@ -1773,6 +2037,67 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
         return nullptr;
 
     auto& clip = triggerRows_[(size_t) dr.clipIndex];
+
+    // ── Custom trigger clip row ──────────────────────────────────────────────
+    if (clip.isCustom)
+    {
+        if (columnId == 9)
+        {
+            auto* btn = dynamic_cast<InlineTestButtonCell*> (existing);
+            if (btn == nullptr) btn = new InlineTestButtonCell();
+            btn->onPress = [this, rowNumber]
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                auto dr2 = displayRows_[(size_t) rowNumber];
+                if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
+                auto& c = triggerRows_[(size_t) dr2.clipIndex];
+                fireCustomTrigger (c);
+                // Highlight row: clear connected for all custom clips, mark this one
+                for (auto& t : triggerRows_)
+                    if (t.layer == c.layer) t.connected = false;
+                c.connected = true;
+                triggerTable_.updateContent();
+                triggerTable_.repaint();
+            };
+            return btn;
+        }
+        if (columnId == 10)
+        {
+            // Col / L-C selector widget (same pattern as End Action)
+            auto* cell = dynamic_cast<InlineCustomTypeCell*> (existing);
+            if (cell == nullptr) cell = new InlineCustomTypeCell();
+            cell->setState (clip.customType, clip.customSourceCol,
+                            clip.customSourceLayer, clip.customSourceClip);
+            cell->onChanged = [this, rowNumber] (const juce::String& type,
+                                                  const juce::String& col,
+                                                  const juce::String& layer,
+                                                  const juce::String& clipVal)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                auto dr2 = displayRows_[(size_t) rowNumber];
+                if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
+                auto& c = triggerRows_[(size_t) dr2.clipIndex];
+                c.customType        = type;
+                c.customSourceCol   = col;
+                c.customSourceLayer = layer;
+                c.customSourceClip  = clipVal;
+            };
+            return cell;
+        }
+        if (columnId == 11)
+        {
+            auto* btn = dynamic_cast<InlineDeleteButtonCell*> (existing);
+            if (btn == nullptr) btn = new InlineDeleteButtonCell();
+            btn->onPress = [this, rowNumber]
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                auto dr2 = displayRows_[(size_t) rowNumber];
+                deleteCustomTrigger (dr2.clipIndex);
+            };
+            return btn;
+        }
+        // Cols 3, 5, 6, 7, 8 fall through to standard handlers below
+    }
 
     if (columnId == 3 || columnId == 5 || columnId == 6 || columnId == 7)
     {
@@ -2034,6 +2359,10 @@ void TriggerContentComponent::applyTheme()
     getTriggersBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
     getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
     getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    createCustomBtn_.setColour (juce::TextButton::buttonColourId,   row_);
+    createCustomBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
+    createCustomBtn_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
+    createCustomBtn_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
 }
 
 void TriggerContentComponent::openHelpPage()
@@ -2050,9 +2379,15 @@ void TriggerContentComponent::openHelpPage()
 
 void TriggerContentComponent::refreshTriggerRows()
 {
+    // Preserve custom (user-created) triggers across Resolume refreshes
+    std::vector<TriggerClip> savedCustom;
+    for (const auto& c : triggerRows_)
+        if (c.isCustom) savedCustom.push_back (c);
+
     std::map<juce::String, TriggerClip> prevByKey;
     for (const auto& p : triggerRows_)
-        prevByKey[juce::String (p.layer) + ":" + juce::String (p.clip)] = p;
+        if (! p.isCustom)
+            prevByKey[juce::String (p.layer) + ":" + juce::String (p.clip)] = p;
 
     triggerRows_.clear();
     auto clips = clipCollector_.snapshot();
@@ -2094,6 +2429,10 @@ void TriggerContentComponent::refreshTriggerRows()
         }
         triggerRows_.push_back (row);
     }
+
+    // Restore custom triggers at the end (they sort to layer=0, always first)
+    for (const auto& c : savedCustom)
+        triggerRows_.push_back (c);
 
     {
         std::set<std::pair<int, int>> valid;
@@ -2263,7 +2602,10 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         if (! juce::isPositiveAndBelow (c.index, (int) triggerRows_.size()))
             continue;
         auto& t = triggerRows_[(size_t) c.index];
-        sendTestTrigger (t.layer, t.clip);
+        if (t.isCustom)
+            fireCustomTrigger (t);
+        else
+            sendTestTrigger (t.layer, t.clip);
         for (auto& x : triggerRows_)
             if (x.layer == t.layer)
                 x.connected = false;
@@ -2849,6 +3191,155 @@ void TriggerContentComponent::rebuildDisplayRows()
     }
 }
 
+bool TriggerContentComponent::hasCustomGroup() const
+{
+    for (const auto& c : triggerRows_)
+        if (c.isCustom) return true;
+    return false;
+}
+
+void TriggerContentComponent::addCustomColTrigger()
+{
+    addCustomColumns();
+    TriggerClip row;
+    row.layer = 0;
+    int nextClip = 1;
+    for (const auto& c : triggerRows_)
+        if (c.isCustom) nextClip = juce::jmax (nextClip, c.clip + 1);
+    row.clip = nextClip;
+    row.include = true;
+    row.name = "Custom " + juce::String (nextClip);
+    row.layerName = "Custom Trigger";
+    row.countdownTc = "00:00:00:00";
+    row.triggerRangeSec = 5.0;
+    row.durationTc = "00:00:00:00";
+    row.triggerTc = "00:00:00:00";
+    row.endActionMode = "off";
+    row.isCustom = true;
+    row.customType = "col";
+    row.customSourceCol = "1";
+    triggerRows_.push_back (row);
+    rebuildDisplayRows();
+    triggerTable_.updateContent();
+    triggerTable_.repaint();
+}
+
+void TriggerContentComponent::addCustomLcTrigger()
+{
+    addCustomColumns();
+    TriggerClip row;
+    row.layer = 0;
+    int nextClip = 1;
+    for (const auto& c : triggerRows_)
+        if (c.isCustom) nextClip = juce::jmax (nextClip, c.clip + 1);
+    row.clip = nextClip;
+    row.include = true;
+    row.name = "Layer/Clip";
+    row.layerName = "Custom";
+    row.countdownTc = "00:00:00:00";
+    row.triggerRangeSec = 5.0;
+    row.durationTc = "00:00:00:00";
+    row.triggerTc = "00:00:00:00";
+    row.endActionMode = "off";
+    row.isCustom = true;
+    row.customType = "lc";
+    row.customSourceLayer = "1";
+    row.customSourceClip = "1";
+    triggerRows_.push_back (row);
+    rebuildDisplayRows();
+    triggerTable_.updateContent();
+    triggerTable_.repaint();
+}
+
+void TriggerContentComponent::deleteCustomTrigger (int clipIndex)
+{
+    if (! juce::isPositiveAndBelow (clipIndex, (int) triggerRows_.size()))
+        return;
+    if (! triggerRows_[(size_t) clipIndex].isCustom)
+        return;
+    const auto& c = triggerRows_[(size_t) clipIndex];
+    currentTriggerKeys_.erase ({ c.layer, c.clip });
+    pendingEndActions_.erase ({ c.layer, c.clip });
+    triggerRangeActive_.erase ({ c.layer, c.clip });
+    triggerRows_.erase (triggerRows_.begin() + clipIndex);
+    rebuildDisplayRows();
+    // updateContent WHILE custom cols still in header so JUCE clears stale components
+    triggerTable_.updateContent();
+    // If the last custom trigger was removed, clean up the custom group completely
+    if (! hasCustomGroup())
+    {
+        layerExpanded_.erase (0);
+        layerEnabled_.erase (0);
+        removeCustomColumns(); // resizes window and removes cols 10/11 from header
+    }
+    triggerTable_.repaint();
+    createCustomBtn_.setEnabled (! hasCustomGroup());
+}
+
+void TriggerContentComponent::deleteCustomGroup()
+{
+    for (auto it = triggerRows_.begin(); it != triggerRows_.end();)
+        it = it->isCustom ? triggerRows_.erase (it) : ++it;
+    for (auto it = currentTriggerKeys_.begin(); it != currentTriggerKeys_.end();)
+        it = (it->first == 0) ? currentTriggerKeys_.erase (it) : ++it;
+    for (auto it = pendingEndActions_.begin(); it != pendingEndActions_.end();)
+        it = (it->first.first == 0) ? pendingEndActions_.erase (it) : ++it;
+    for (auto it = triggerRangeActive_.begin(); it != triggerRangeActive_.end();)
+        it = (it->first.first == 0) ? triggerRangeActive_.erase (it) : ++it;
+    layerExpanded_.erase (0);
+    layerEnabled_.erase (0);
+
+    // Rebuild display first so refreshComponentForCell sees no custom rows.
+    rebuildDisplayRows();
+
+    // Call updateContent WHILE cols 10-12 still exist: JUCE calls
+    // refreshComponentForCell for those cols on every (now-regular) row,
+    // gets nullptr back, and removes the stale custom-row components.
+    triggerTable_.updateContent();
+
+    // Now remove the columns and resize the window.
+    removeCustomColumns();
+
+    triggerTable_.repaint();
+    createCustomBtn_.setEnabled (true);
+}
+
+void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
+{
+    const auto ip = resolumeSendIp_.getText().trim().isNotEmpty()
+                        ? resolumeSendIp_.getText().trim()
+                        : juce::String ("127.0.0.1");
+    const int port = juce::jlimit (1, 65535, resolumeSendPort_.getText().trim().getIntValue());
+
+    juce::String addr;
+    if (clip.customType == "col")
+    {
+        const int col = clip.customSourceCol.getIntValue();
+        if (col > 0)
+            addr = "/composition/columns/" + juce::String (col) + "/connect";
+    }
+    else if (clip.customType == "lc")
+    {
+        const int lay = clip.customSourceLayer.getIntValue();
+        const int clp = clip.customSourceClip.getIntValue();
+        if (lay > 0 && clp > 0)
+            addr = "/composition/layers/" + juce::String (lay)
+                   + "/clips/" + juce::String (clp) + "/connect";
+    }
+
+    if (addr.isEmpty())
+        return;
+
+    juce::OSCSender s;
+    if (! s.connect (ip, port))
+        return;
+    juce::OSCMessage on (addr);  on.addInt32 (1);
+    juce::OSCMessage off (addr); off.addInt32 (0);
+    s.send (on);
+    s.send (off);
+    s.disconnect();
+}
+
 void TriggerContentComponent::queryResolume()
 {
     juce::String err;
@@ -2883,6 +3374,9 @@ void TriggerContentComponent::openSettingsMenu()
     m.addSeparator();
     m.addItem (7, "Rescan audio devices");
     m.addSeparator();
+    m.addItem (10, "Clear custom triggers", hasCustomGroup());
+    m.addItem (11, "Clear clip triggers", ! triggerRows_.empty());
+    m.addSeparator();
     m.addItem (8, "Load on startup", true, autoLoadOnStartup_);
     m.addItem (9, "Close to tray", true, closeToTray_);
 
@@ -2904,6 +3398,30 @@ void TriggerContentComponent::openSettingsMenu()
                                  safe->startAudioDeviceScan();
                                  safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
                                  break;
+                             case 10:
+                                 if (safe->hasCustomGroup())
+                                 {
+                                     safe->deleteCustomGroup();
+                                     safe->setTimecodeStatusText ("Custom triggers cleared", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                 }
+                                 break;
+                             case 11:
+                             {
+                                 // Remove all non-custom clips and their state
+                                 for (auto it = safe->triggerRows_.begin(); it != safe->triggerRows_.end();)
+                                     it = (! it->isCustom) ? safe->triggerRows_.erase (it) : ++it;
+                                 for (auto it = safe->currentTriggerKeys_.begin(); it != safe->currentTriggerKeys_.end();)
+                                     it = (it->first != 0) ? safe->currentTriggerKeys_.erase (it) : ++it;
+                                 for (auto it = safe->pendingEndActions_.begin(); it != safe->pendingEndActions_.end();)
+                                     it = (it->first.first != 0) ? safe->pendingEndActions_.erase (it) : ++it;
+                                 for (auto it = safe->triggerRangeActive_.begin(); it != safe->triggerRangeActive_.end();)
+                                     it = (it->first.first != 0) ? safe->triggerRangeActive_.erase (it) : ++it;
+                                 safe->rebuildDisplayRows();
+                                 safe->triggerTable_.updateContent();
+                                 safe->triggerTable_.repaint();
+                                 safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                                 break;
+                             }
                              case 8:
                                  safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
                                  safe->saveRuntimePrefs();
@@ -3072,9 +3590,19 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
             rowObj->setProperty ("end_action_col", clip.endActionCol);
             rowObj->setProperty ("end_action_layer", clip.endActionLayer);
             rowObj->setProperty ("end_action_clip", clip.endActionClip);
+            rowObj->setProperty ("is_custom", clip.isCustom);
+            if (clip.isCustom)
+            {
+                rowObj->setProperty ("custom_type", clip.customType);
+                rowObj->setProperty ("custom_source_col", clip.customSourceCol);
+                rowObj->setProperty ("custom_source_layer", clip.customSourceLayer);
+                rowObj->setProperty ("custom_source_clip", clip.customSourceClip);
+            }
             rows.add (juce::var (rowObj));
         }
         rootObj->setProperty ("clips", juce::var (rows));
+        if (hasCustomGroup())
+            rootObj->setProperty ("custom_group_name", customGroupName_);
     }
 
     if (bridge::core::ConfigStore::saveJsonFile (file, juce::var (rootObj)))
@@ -3189,13 +3717,30 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
                     clip.endActionCol = rowObj->getProperty ("end_action_col").toString();
                     clip.endActionLayer = rowObj->getProperty ("end_action_layer").toString();
                     clip.endActionClip = rowObj->getProperty ("end_action_clip").toString();
+                    clip.isCustom = rowObj->hasProperty ("is_custom") && (bool) rowObj->getProperty ("is_custom");
+                    if (clip.isCustom)
+                    {
+                        clip.customType = rowObj->getProperty ("custom_type").toString();
+                        if (clip.customType.isEmpty()) clip.customType = "col";
+                        clip.customSourceCol   = rowObj->getProperty ("custom_source_col").toString();
+                        clip.customSourceLayer = rowObj->getProperty ("custom_source_layer").toString();
+                        clip.customSourceClip  = rowObj->getProperty ("custom_source_clip").toString();
+                    }
                     triggerRows_.push_back (clip);
                 }
             }
         }
+        if (hasCustomGroup())
+        {
+            addCustomColumns();
+            customGroupName_ = rootObj->hasProperty ("custom_group_name")
+                                   ? rootObj->getProperty ("custom_group_name").toString()
+                                   : juce::String ("Custom Trigger");
+        }
         rebuildDisplayRows();
         triggerTable_.updateContent();
         triggerTable_.repaint();
+        createCustomBtn_.setEnabled (! hasCustomGroup());
     }
 
     updateWindowHeight();

@@ -445,6 +445,12 @@ private:
         juce::String endActionClip;
         bool connected { false };
         bool timecodeHit { false };
+        // custom (user-created) trigger fields
+        bool isCustom { false };
+        juce::String customType { "col" };   // "col" or "lc"
+        juce::String customSourceCol;
+        juce::String customSourceLayer;
+        juce::String customSourceClip;
     };
     struct DisplayRow
     {
@@ -483,7 +489,15 @@ private:
     void updateWindowHeight();
     void refreshTriggerRows();
     void rebuildDisplayRows();
+    bool hasCustomGroup() const;
+    void addCustomColTrigger();
+    void addCustomLcTrigger();
+    void deleteCustomTrigger (int clipIndex);
+    void deleteCustomGroup();
+    void fireCustomTrigger (const TriggerClip& clip);
     void updateTableColumnWidths();
+    void addCustomColumns();
+    void removeCustomColumns();
     void tableColumnsResized (juce::TableHeaderComponent*) override;
     void tableColumnsChanged (juce::TableHeaderComponent*) override {}
     void tableSortOrderChanged (juce::TableHeaderComponent*) override {}
@@ -636,7 +650,8 @@ private:
     juce::TextEditor resolumeMaxLayers_;
     juce::TextEditor resolumeMaxClips_;
     juce::TextEditor resolumeGlobalOffset_;
-    juce::TextButton getTriggersBtn_ { "Get Triggers" };
+    juce::TextButton getTriggersBtn_ { "Get Clips" };
+    juce::TextButton createCustomBtn_ { "Create Custom Trigger" };
     juce::TextButton settingsButton_ { "Settings" };
     juce::TextButton quitButton_ { "Quit" };
 
@@ -664,6 +679,8 @@ private:
     int pendingLtcOutputBufferSize_ { 0 };
     bool pendingLtcOutputEnabled_ { false };
     bool colWidthGuard_ { false };
+
+    juce::String customGroupName_ { "Custom Trigger" };
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };
     juce::Colour row_ { juce::Colour::fromRGB (0x3a, 0x3a, 0x3a) };

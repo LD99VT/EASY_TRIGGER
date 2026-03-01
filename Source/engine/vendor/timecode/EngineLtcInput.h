@@ -66,9 +66,6 @@ public:
             selCh = 0;
         if (thruCh >= numChannelsAvailable)
             thruCh = -1;
-        // Prevent passthrough from using the same channel as LTC decode
-        if (thruCh >= 0 && thruCh == selCh)
-            thruCh = -1;
         selectedChannel.store(selCh, std::memory_order_relaxed);
         passthruChannel.store(thruCh, std::memory_order_relaxed);
 

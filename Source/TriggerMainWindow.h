@@ -678,6 +678,9 @@ private:
     double pendingLtcOutputSampleRate_ { 0.0 };
     int pendingLtcOutputBufferSize_ { 0 };
     bool pendingLtcOutputEnabled_ { false };
+    bool pendingLtcThruMode_ { false };
+    bool queryPending_ { false };
+    juce::int64 queryStartMs_ { 0 };
     bool colWidthGuard_ { false };
 
     juce::String customGroupName_ { "Custom Trigger" };

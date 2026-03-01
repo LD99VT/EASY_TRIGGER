@@ -155,6 +155,7 @@
       <li><a class="sub" href="#mtc-in">  MTC</a></li>
       <li><a class="sub" href="#artnet-in">  ArtNet</a></li>
       <li><a class="sub" href="#osc-in">  OSC</a></li>
+      <li><a href="#ltc-out">LTC Output</a></li>
       <li><a href="#resolume">Resolume Settings</a></li>
       <li><a href="#table-layers">Clip Table – Layers</a></li>
       <li><a href="#table-clips">Clip Table – Clips</a></li>
@@ -246,6 +247,20 @@
       <tr><td>Float address</td><td>OSC path for float position messages (e.g. <code>/time</code>). Value is interpreted as seconds × FPS.</td></tr>
     </table>
 
+    <!-- ── LTC OUTPUT ────────────────────────────────────────────────── -->
+    <h2 id="ltc-out">LTC Output</h2>
+    <p>Generates an LTC audio signal from the decoded timecode and sends it to a selected audio output device. When <b>Thru</b> mode is active, the raw input audio is routed directly instead.</p>
+    <table class="fields">
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td>Out LTC toggle</td><td>Enable or disable the LTC output stream. When disabled, no audio is sent to the output device regardless of the Thru setting.</td></tr>
+      <tr><td>Thru dot</td><td>Clickable toggle in the section header. When <b>ON</b> (and the Out LTC switch is also ON), the raw LTC audio captured from the input device is passed directly to the selected output — no decode / re-encode cycle. This preserves the original signal and eliminates encoder latency. When <b>OFF</b>, the normal timecode encoder output is used. The LTC input source must be running for Thru to produce audio.</td></tr>
+      <tr><td>Driver</td><td>Audio host API for the output device: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS), or <b>ASIO</b>.</td></tr>
+      <tr><td>Device (Output)</td><td>Audio output device that will carry the LTC signal.</td></tr>
+      <tr><td>Channel</td><td>Output channel: 1–8 or <code>1+2</code> (stereo duplicate). Use <code>1+2</code> if the downstream device requires a stereo feed.</td></tr>
+      <tr><td>Sample Rate</td><td>Must match the device's configured rate. Mismatched rates cause pitch-shifted or garbled LTC.</td></tr>
+      <tr><td>Level</td><td>Output level from <code>−24 dB</code> to <code>+24 dB</code>. Double-click to reset to 0 dB.</td></tr>
+    </table>
+
     <!-- ── RESOLUME ───────────────────────────────────────────────────── -->
     <h2 id="resolume">Resolume Settings</h2>
     <p>Configures the connection between Easy Trigger and Resolume Arena / Avenue.</p>
@@ -325,7 +340,7 @@
     <h2 id="buttons">Toolbar Buttons</h2>
     <table class="fields">
       <tr><th>Button</th><th>Description</th></tr>
-      <tr><td>Get Clips</td><td>Sends an OSC request to Resolume to retrieve the current composition structure (layers and clip names). The table is populated with the response. Requires a working connection to Resolume (correct Output IP, Output Port, and Input Port). Existing trigger times and durations for matching layer/clip slots are preserved.</td></tr>
+      <tr><td>Get Clips</td><td>Sends an OSC request to Resolume to retrieve the current composition structure (layers and clip names). The table is populated with the response. Requires a working connection to Resolume (correct Output IP, Output Port, and Input Port). Existing trigger times and durations for matching layer/clip slots are preserved. If no response arrives within 3 seconds, a warning dialog is shown.</td></tr>
       <tr><td>Create Custom Trigger</td><td>Creates the Custom Trigger group and adds the first entry. Visible only when no custom triggers exist yet. After the group is created, use the <code>+</code> button inside the group to add more.</td></tr>
       <tr><td>Settings</td><td>Opens the <a href="#settings">Settings menu</a> for saving, loading, and managing configuration files.</td></tr>
       <tr><td>Quit</td><td>Closes the application. If <b>Close to tray</b> is enabled, use the tray icon's Quit option to actually exit.</td></tr>
@@ -386,6 +401,8 @@
       <tr><td>"OSC listener is not running"</td><td>The Input Port is in use by another application, or the listener failed to start after loading a settings file. Change the port or restart the application.</td></tr>
       <tr><td>Custom trigger fires wrong clip</td><td>Confirm the Col or L/C numbers entered in the Type/Source field match the actual column or layer/clip index in Resolume (1-based).</td></tr>
       <tr><td>LTC decode unreliable</td><td>On Windows, switch the Driver to ASIO or WASAPI Exclusive for lower jitter. Adjust Input Gain so the Level meter shows a healthy signal.</td></tr>
+      <tr><td>LTC Thru produces silence</td><td>Ensure the LTC Input source is selected and running (Level meter should show a signal). The Thru dot and the Out LTC switch must both be ON. Confirm the output device and channel are set correctly.</td></tr>
+      <tr><td>"Could not receive clips from Resolume" dialog</td><td>Resolume did not respond to the Get Clips request within 3 seconds. Check Output IP, Output Port, and that Resolume is running with an open composition. Verify the OSC server is enabled in Resolume Preferences.</td></tr>
     </table>
 
   </main>

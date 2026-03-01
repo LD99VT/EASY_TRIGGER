@@ -36,6 +36,7 @@ juce::Array<AudioChoice> scanAudioDevices (bool wantInputs)
 BridgeEngine::BridgeEngine() = default;
 BridgeEngine::~BridgeEngine()
 {
+    stopLtcThru();
     stopLtcOutput();
     stopMtcOutput();
     stopArtnetOutput();
@@ -90,9 +91,9 @@ bool BridgeEngine::startLtcInput (const AudioChoice& choice, int channel, double
         return true;
     }
 
-    bool ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, sampleRate, bufferSize);
+    bool ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, ch, sampleRate, bufferSize);
     if (! ok && (sampleRate > 0.0 || bufferSize > 0))
-        ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, -1, 0.0, 0);
+        ok = ltcInput_.start (choice.typeName, choice.deviceName, ch, ch, 0.0, 0);
     if (! ok)
     {
         errorOut = "Failed to start LTC input";
@@ -262,6 +263,43 @@ void BridgeEngine::stopLtcOutput()
     ltcOutput_.stop();
 }
 
+bool BridgeEngine::startLtcThru (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut)
+{
+    if (! ltcInput_.getIsRunning())
+    {
+        errorOut = "LTC input not running";
+        return false;
+    }
+    stopLtcThru();
+    bool ok = ltcThruOutput_.start (choice.typeName, choice.deviceName, channel, &ltcInput_, sampleRate, bufferSize);
+    if (! ok && (sampleRate > 0.0 || bufferSize > 0))
+        ok = ltcThruOutput_.start (choice.typeName, choice.deviceName, channel, &ltcInput_, 0.0, 0);
+    if (! ok)
+    {
+        errorOut = "Failed to start LTC Thru";
+        return false;
+    }
+    ltcThruEnabled_ = true;
+    errorOut.clear();
+    return true;
+}
+
+void BridgeEngine::stopLtcThru()
+{
+    ltcThruOutput_.stop();
+    ltcThruEnabled_ = false;
+}
+
+bool BridgeEngine::getLtcThruRunning() const
+{
+    return ltcThruOutput_.getIsRunning();
+}
+
+float BridgeEngine::getLtcThruPeakLevel() const
+{
+    return ltcInput_.getIsRunning() ? ltcThruOutput_.getPeakLevel() : 0.0f;
+}
+
 bool BridgeEngine::startMtcOutput (int deviceIndex, juce::String& errorOut)
 {
     mtcOutput_.refreshDeviceList();
@@ -379,7 +417,10 @@ Timecode BridgeEngine::applyOffsetSafe (const Timecode& tc, int frames, FrameRat
 RuntimeStatus BridgeEngine::tick()
 {
     RuntimeStatus st;
-    st.ltcOutStatus = (! ltcOutEnabled_) ? "OFF" : (ltcOutput_.getIsRunning() ? (ltcOutput_.isPaused() ? "ARMED" : "ON") : "OFF");
+    st.ltcOutStatus = (ltcThruEnabled_ && ltcThruOutput_.getIsRunning())
+                        ? "THRU"
+                        : (! ltcOutEnabled_) ? "OFF"
+                        : (ltcOutput_.getIsRunning() ? (ltcOutput_.isPaused() ? "ARMED" : "ON") : "OFF");
     st.mtcOutStatus = (! mtcOutEnabled_) ? "OFF" : (mtcOutput_.getIsRunning() ? (mtcOutput_.isPaused() ? "ARMED" : "ON") : "OFF");
     st.artnetOutStatus = (! artnetOutEnabled_) ? "OFF" : (artnetOutput_.getIsRunning() ? (artnetOutput_.isPaused() ? "ARMED" : "ON") : "OFF");
 

@@ -7,6 +7,7 @@
 #include "inputs/MtcInput.h"
 #include "OscInput.h"
 #include "outputs/ArtnetOutput.h"
+#include "outputs/AudioThruOutput.h"
 #include "outputs/LtcOutput.h"
 #include "outputs/MtcOutput.h"
 
@@ -63,6 +64,10 @@ public:
 
     bool startLtcOutput (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut);
     void stopLtcOutput();
+    bool startLtcThru (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut);
+    void stopLtcThru();
+    bool getLtcThruRunning() const;
+    float getLtcThruPeakLevel() const;
     bool startMtcOutput (int deviceIndex, juce::String& errorOut);
     void stopMtcOutput();
     bool startArtnetOutput (int interfaceIndex, juce::String& errorOut);
@@ -110,10 +115,12 @@ private:
     OscInput oscInput_;
 
     LtcOutput ltcOutput_;
+    AudioThruOutput ltcThruOutput_;
     MtcOutput mtcOutput_;
     ArtnetOutput artnetOutput_;
 
     bool ltcOutEnabled_ { false };
+    bool ltcThruEnabled_ { false };
     bool mtcOutEnabled_ { false };
     bool artnetOutEnabled_ { false };
 

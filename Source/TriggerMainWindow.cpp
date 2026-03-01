@@ -3502,6 +3502,72 @@ void TriggerContentComponent::queryResolume()
     setResolumeStatusText ("Resolume query sent", juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
 }
 
+void TriggerContentComponent::resetSettings()
+{
+    // Stop active engines before resetting
+    bridgeEngine_.stopLtcThru();
+    bridgeEngine_.stopLtcOutput();
+    bridgeEngine_.stopLtcInput();
+
+    // Source
+    sourceCombo_.setSelectedId (1, juce::dontSendNotification);
+    sourceExpanded_    = true;
+    outLtcExpanded_    = false;
+    resolumeExpanded_  = false;
+    sourceExpandBtn_.setExpanded   (sourceExpanded_);
+    outLtcExpandBtn_.setExpanded   (outLtcExpanded_);
+    resolumeExpandBtn_.setExpanded (resolumeExpanded_);
+
+    // LTC In
+    ltcInDriverCombo_.setSelectedId  (1, juce::dontSendNotification);
+    ltcOutDriverCombo_.setSelectedId (1, juce::dontSendNotification);
+    refreshLtcDeviceListsByDriver();
+    ltcInDeviceCombo_.setSelectedId  (0, juce::dontSendNotification);
+    ltcInChannelCombo_.setSelectedId (1, juce::dontSendNotification);
+    ltcInSampleRateCombo_.setSelectedId (1, juce::dontSendNotification);
+    ltcInGainSlider_.setValue (0.0, juce::dontSendNotification);
+
+    // LTC Out
+    ltcOutDeviceCombo_.setSelectedId (0, juce::dontSendNotification);
+    ltcOutChannelCombo_.setSelectedId (1, juce::dontSendNotification);
+    ltcOutSampleRateCombo_.setSelectedId (1, juce::dontSendNotification);
+    ltcOffsetEditor_.setText  ("00:00:00:00", juce::dontSendNotification);
+    ltcOutLevelSlider_.setValue (0.0, juce::dontSendNotification);
+    ltcOutSwitch_.setState (false);
+    ltcThruDot_.setState   (false);
+
+    // MTC / ArtNet / OSC
+    mtcInCombo_.setSelectedId      (0, juce::dontSendNotification);
+    artnetInCombo_.setSelectedId   (0, juce::dontSendNotification);
+    artnetListenIpEditor_.setText  ("0.0.0.0",  juce::dontSendNotification);
+    oscIpEditor_.setText           ("0.0.0.0",  juce::dontSendNotification);
+    oscPortEditor_.setText         ("9000",      juce::dontSendNotification);
+    oscAddrStrEditor_.setText      ("",          juce::dontSendNotification);
+    oscAddrFloatEditor_.setText    ("",          juce::dontSendNotification);
+
+    // Resolume
+    resolumeSendIp_.setText        ("127.0.0.1", juce::dontSendNotification);
+    resolumeSendPort_.setText      ("7000",       juce::dontSendNotification);
+    resolumeListenIp_.setText      ("0.0.0.0",   juce::dontSendNotification);
+    resolumeListenPort_.setText    ("7001",       juce::dontSendNotification);
+    resolumeMaxLayers_.setText     ("4",          juce::dontSendNotification);
+    resolumeMaxClips_.setText      ("32",         juce::dontSendNotification);
+    resolumeGlobalOffset_.setText  ("00:00:00:00", juce::dontSendNotification);
+
+    updateWindowHeight();
+    resized();
+    repaint();
+    juce::Timer::callAfterDelay (50, [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
+    {
+        if (auto* self = safe.getComponent())
+        {
+            self->onInputSettingsChanged();
+            self->onOutputSettingsChanged();
+        }
+    });
+    setTimecodeStatusText ("Settings reset to defaults", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+}
+
 void TriggerContentComponent::openSettingsMenu()
 {
     juce::PopupMenu m;
@@ -3517,6 +3583,7 @@ void TriggerContentComponent::openSettingsMenu()
     m.addSeparator();
     m.addItem (10, "Clear custom triggers", hasCustomGroup());
     m.addItem (11, "Clear clip triggers", ! triggerRows_.empty());
+    m.addItem (12, "Reset settings");
     m.addSeparator();
     m.addItem (8, "Load on startup", true, autoLoadOnStartup_);
     m.addItem (9, "Close to tray", true, closeToTray_);
@@ -3563,6 +3630,9 @@ void TriggerContentComponent::openSettingsMenu()
                                  safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              }
+                             case 12:
+                                 safe->resetSettings();
+                                 break;
                              case 8:
                                  safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
                                  safe->saveRuntimePrefs();
@@ -3831,8 +3901,19 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
             sourceExpandBtn_.setExpanded (sourceExpanded_);
             outLtcExpandBtn_.setExpanded (outLtcExpanded_);
             resolumeExpandBtn_.setExpanded (resolumeExpanded_);
-            onInputSettingsChanged();
-            onOutputSettingsChanged();
+            // Update layout and paint immediately so the UI reflects loaded state
+            // before audio device init blocks the message thread.
+            updateWindowHeight();
+            resized();
+            repaint();
+            juce::Timer::callAfterDelay (50, [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
+            {
+                if (auto* self = safe.getComponent())
+                {
+                    self->onInputSettingsChanged();
+                    self->onOutputSettingsChanged();
+                }
+            });
         }
     }
 
@@ -3886,6 +3967,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
 
     updateWindowHeight();
     resized();
+    repaint();
     lastConfigFile_ = file;
     saveRuntimePrefs();
     setTimecodeStatusText ("Config loaded: " + file.getFileName(), juce::Colour::fromRGB (0xec, 0x48, 0x3c));

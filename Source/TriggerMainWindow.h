@@ -477,6 +477,7 @@ private:
     void onOutputSettingsChanged();
     void onOutputToggleChanged();
     void openSettingsMenu();
+    void resetSettings();
     void loadRuntimePrefs();
     void saveRuntimePrefs() const;
     void maybeAutoLoadConfig();

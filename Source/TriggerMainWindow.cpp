@@ -56,9 +56,11 @@ juce::String parseBindIpFromAdapterLabel (juce::String text)
 void setupDbSlider (juce::Slider& s)
 {
     s.setSliderStyle (juce::Slider::LinearHorizontal);
-    s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+    s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 60, 20);
     s.setRange (-24, 24, 0.1);
     s.setValue (0.0);
+    s.setTextValueSuffix (" dB");
+    s.setDoubleClickReturnValue (true, 0.0);
 }
 
 void fillRateCombo (juce::ComboBox& combo)
@@ -914,15 +916,16 @@ TriggerContentComponent::TriggerContentComponent()
     triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
     triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
     auto& h = triggerTable_.getHeader();
-    h.addColumn ("", 1, 40);
-    h.addColumn ("In", 2, 46);
-    h.addColumn ("Name", 3, 260);
-    h.addColumn ("Count", 4, 110);
-    h.addColumn ("Range", 5, 70);
-    h.addColumn ("Trigger", 6, 110);
-    h.addColumn ("Duration", 7, 110);
-    h.addColumn ("End Action", 8, 180);
-    h.addColumn ("Test", 9, 56, 56, 56, juce::TableHeaderComponent::notResizable);
+    h.addColumn ("",           1,  40,  30);
+    h.addColumn ("In",         2,  46,  34);
+    h.addColumn ("Name",       3, 260,  90);
+    h.addColumn ("Count",      4, 110,  92);
+    h.addColumn ("Range",      5,  70,  58);
+    h.addColumn ("Trigger",    6, 110,  92);
+    h.addColumn ("Duration",   7, 110,  92);
+    h.addColumn ("End Action", 8, 180,  72);  // dynamic min enforced in tableColumnsResized
+    h.addColumn ("Test",       9,  56,  56, 56, juce::TableHeaderComponent::notResizable);
+    h.addListener (this);
     h.setStretchToFitActive (false);
     h.setColour (juce::TableHeaderComponent::backgroundColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
     h.setColour (juce::TableHeaderComponent::textColourId, juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
@@ -991,6 +994,7 @@ TriggerContentComponent::~TriggerContentComponent()
 
     if (scanThread_ != nullptr && scanThread_->isThreadRunning())
         scanThread_->stopThread (2000);
+    triggerTable_.getHeader().removeListener (this);
     clipCollector_.stopListening();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
@@ -1125,10 +1129,11 @@ void TriggerContentComponent::resized()
     fpsLabel_.setBounds (fpsRect);
     left.removeFromTop (4);
 
-    auto footerArea = left.removeFromBottom (84);
+    auto footerArea = left.removeFromBottom (88);
     auto actionRow = footerArea.removeFromBottom (40);
     footerArea.removeFromBottom (4);
     auto getTriggersRow = footerArea.removeFromBottom (40);
+    footerArea.removeFromBottom (4); // 4px top gap above Get Triggers
     leftViewportRect_ = left;
     leftViewport_.setBounds (leftViewportRect_);
     const auto src = sourceCombo_.getSelectedId();
@@ -1393,16 +1398,27 @@ void TriggerContentComponent::updateTableColumnWidths()
         int min;
     };
 
+    // Adaptive minimum for End Action column:
+    //   off  → button(62) + margins(2) + padding          = ~72px
+    //   col  → button(62) + gap(4) + field(50) + margins  = ~120px
+    //   lc   → button(62) + gap(4) + f1(42) + gap(4) + f2(42) + margins = ~160px
+    int endActionMin = 72;
+    for (const auto& clip : triggerRows_)
+    {
+        if (clip.endActionMode == "lc")  { endActionMin = 160; break; }
+        if (clip.endActionMode == "col")   endActionMin = 120;
+    }
+
     std::array<Col, 9> cols {{
-        { 1, 34, 30 },   // arrow
-        { 2, 38, 34 },   // in
-        { 3, 186, 150 }, // name
-        { 4, 96, 84 },   // count
-        { 5, 64, 58 },   // range
-        { 6, 98, 88 },   // trigger
-        { 7, 98, 88 },   // duration
-        { 8, 160, 136 }, // end action
-        { 9, 48, 44 }    // test
+        { 1,  34,  30 },           // arrow
+        { 2,  38,  34 },           // in
+        { 3, 186, 150 },           // name
+        { 4,  96,  92 },           // count    – "00:00:00:00" + padding
+        { 5,  64,  58 },           // range
+        { 6,  98,  92 },           // trigger  – timecode
+        { 7,  98,  92 },           // duration – timecode
+        { 8, 160, endActionMin },  // end action – adaptive per mode
+        { 9,  48,  44 }            // test
     }};
 
     int baseSum = 0;
@@ -1445,6 +1461,36 @@ void TriggerContentComponent::updateTableColumnWidths()
 
     for (size_t i = 0; i < cols.size(); ++i)
         h.setColumnWidth (cols[i].id, widths[i]);
+}
+
+void TriggerContentComponent::tableColumnsResized (juce::TableHeaderComponent*)
+{
+    if (colWidthGuard_)
+        return;
+    colWidthGuard_ = true;
+
+    auto& h = triggerTable_.getHeader();
+
+    // Fixed minimums: timecode columns must show "00:00:00:00"
+    auto enforceMin = [&] (int colId, int minW)
+    {
+        if (h.getColumnWidth (colId) < minW)
+            h.setColumnWidth (colId, minW);
+    };
+    enforceMin (4, 92);   // count
+    enforceMin (6, 92);   // trigger
+    enforceMin (7, 92);   // duration
+
+    // Adaptive minimum for End Action based on current clip modes
+    int endMin = 72;
+    for (const auto& clip : triggerRows_)
+    {
+        if (clip.endActionMode == "lc")  { endMin = 160; break; }
+        if (clip.endActionMode == "col")   endMin = 120;
+    }
+    enforceMin (8, endMin);
+
+    colWidthGuard_ = false;
 }
 
 void TriggerContentComponent::timerCallback()
@@ -1499,7 +1545,7 @@ void TriggerContentComponent::timerCallback()
                                          : juce::Colour::fromRGB (0xff, 0x78, 0x6e));
     setResolumeStatusText ("Layers: " + juce::String (maxLayer)
                            + " | Clips: " + juce::String ((int) clips.size()),
-                           juce::Colour::fromRGB (0xff, 0x78, 0x6e));
+                           juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
 }
 
 int TriggerContentComponent::getNumRows()
@@ -1612,9 +1658,15 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         }
         else if (columnId == 3)
         {
+            // Filter out Resolume default names: "", "#", "Layer #", "Layer #N"
+            auto isCustomName = [] (const juce::String& s) -> bool
+            {
+                const auto t = s.trim();
+                return t.isNotEmpty() && !t.startsWith ("#") && !t.startsWith ("Layer #");
+            };
             juce::String layerName;
             for (const auto& c : triggerRows_)
-                if (c.layer == dr.layer && c.layerName.isNotEmpty()) { layerName = c.layerName; break; }
+                if (c.layer == dr.layer && isCustomName (c.layerName)) { layerName = c.layerName.trim(); break; }
             text = layerName.isNotEmpty() ? layerName : ("Layer " + juce::String (dr.layer));
         }
 
@@ -1777,6 +1829,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             c.endActionCol = col;
             c.endActionLayer = layer;
             c.endActionClip = clipValue;
+            updateTableColumnWidths();
             triggerTable_.updateContent();
             triggerTable_.repaint();
         };

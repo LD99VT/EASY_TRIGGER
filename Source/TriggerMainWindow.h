@@ -156,7 +156,7 @@ public:
         auto intBounds = getLocalBounds();
         constexpr float corner = 2.0f;
 
-        g.setColour (juce::Colour (0xFF0D0E12));
+        g.setColour (juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
         g.fillRoundedRectangle (intBounds.toFloat(), corner);
 
         auto bounds = intBounds.toFloat().reduced (1.0f);
@@ -377,11 +377,45 @@ public:
         g.setColour (c);
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
     }
+
+    // Rounded background for slider textboxes (and any label with non-transparent bg)
+    void drawLabel (juce::Graphics& g, juce::Label& label) override
+    {
+        const auto bg = label.findColour (juce::Label::backgroundColourId);
+        if (bg.getAlpha() > 0)
+        {
+            g.setColour (bg);
+            g.fillRoundedRectangle (label.getLocalBounds().toFloat(), 4.0f);
+        }
+
+        if (! label.isBeingEdited())
+        {
+            const auto tc = label.findColour (juce::Label::textColourId);
+            if (tc.getAlpha() > 0)
+            {
+                const auto textArea = label.getBorderSize().subtractedFrom (label.getLocalBounds());
+                g.setFont (label.getFont());
+                g.setColour (tc);
+                g.drawFittedText (label.getText(), textArea, label.getJustificationType(),
+                                  juce::jmax (1, (int) ((float) textArea.getHeight() / label.getFont().getHeight())),
+                                  label.getMinimumHorizontalScale());
+            }
+        }
+
+        const auto oc = label.findColour (label.isBeingEdited() ? juce::Label::outlineWhenEditingColourId
+                                                                 : juce::Label::outlineColourId);
+        if (oc.getAlpha() > 0)
+        {
+            g.setColour (oc);
+            g.drawRoundedRectangle (label.getLocalBounds().toFloat().reduced (0.5f), 4.0f, 1.0f);
+        }
+    }
 };
 
 class TriggerContentComponent final : public juce::Component,
                                       private juce::Timer,
-                                      private juce::TableListBoxModel
+                                      private juce::TableListBoxModel,
+                                      private juce::TableHeaderComponent::Listener
 {
 public:
     TriggerContentComponent();
@@ -450,6 +484,9 @@ private:
     void refreshTriggerRows();
     void rebuildDisplayRows();
     void updateTableColumnWidths();
+    void tableColumnsResized (juce::TableHeaderComponent*) override;
+    void tableColumnsChanged (juce::TableHeaderComponent*) override {}
+    void tableSortOrderChanged (juce::TableHeaderComponent*) override {}
     void queryResolume();
     void updateClipCountdowns();
     void evaluateAndFireTriggers();
@@ -541,7 +578,7 @@ private:
     juce::Label inChannelLbl_ { {}, "Channel:" };
     juce::Label inRateLbl_ { {}, "Sample rate:" };
     juce::Label inLevelLbl_ { {}, "Level:" };
-    juce::Label inGainLbl_ { {}, "Input gain:" };
+    juce::Label inGainLbl_ { {}, "Input Gain:" };
     juce::Label mtcInLbl_ { {}, "MTC Input:" };
     juce::Label artInLbl_ { {}, "ArtNet adapter:" };
     juce::Label artInListenIpLbl_ { {}, "Listen IP:" };
@@ -556,7 +593,7 @@ private:
     juce::Label outChannelLbl_ { {}, "Channel:" };
     juce::Label outRateLbl_ { {}, "Sample rate:" };
     juce::Label outOffsetLbl_ { {}, "Offset (frames):" };
-    juce::Label outLevelLbl_ { {}, "Output level:" };
+    juce::Label outLevelLbl_ { {}, "Output Gain:" };
     juce::Label ltcThruLbl_ { {}, "Thru" };
     juce::Label resSendIpLbl_ { {}, "Send IP:" };
     juce::Label resSendPortLbl_ { {}, "Send port:" };
@@ -626,6 +663,7 @@ private:
     double pendingLtcOutputSampleRate_ { 0.0 };
     int pendingLtcOutputBufferSize_ { 0 };
     bool pendingLtcOutputEnabled_ { false };
+    bool colWidthGuard_ { false };
 
     juce::Colour bg_ { juce::Colour::fromRGB (0x17, 0x17, 0x17) };
     juce::Colour row_ { juce::Colour::fromRGB (0x3a, 0x3a, 0x3a) };

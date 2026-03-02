@@ -1,4 +1,7 @@
 #include "TriggerMainWindow.h"
+using trigger::styleCombo;
+using trigger::styleEditor;
+using trigger::styleSlider;
 #include "Version.h"
 #include "core/ConfigStore.h"
 #include <algorithm>
@@ -1030,6 +1033,7 @@ TriggerContentComponent::TriggerContentComponent()
     };
     for (auto* l : sourceRowLabels)
     {
+        l->setColour (juce::Label::backgroundColourId, row_);
         l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         l->setJustificationType (juce::Justification::centredLeft);
         leftViewportContent_.addAndMakeVisible (*l);
@@ -1128,7 +1132,15 @@ TriggerContentComponent::TriggerContentComponent()
         c->onChange = [this] { onOutputSettingsChanged(); };
     }
     artnetListenIpEditor_.onTextChange = [this] { onInputSettingsChanged(); };
-    oscFloatTypeCombo_.onChange = [this] { resized(); onInputSettingsChanged(); };
+    oscFloatTypeCombo_.onChange = [this]
+    {
+        updateWindowHeight();
+        resized();
+        leftViewportContent_.repaint();
+        leftViewport_.repaint();
+        repaint();
+        onInputSettingsChanged();
+    };
     oscFloatMaxEditor_.onTextChange = [this] { onInputSettingsChanged(); };
 
     ltcInDriverCombo_.onChange = [this]
@@ -2447,7 +2459,7 @@ void TriggerContentComponent::loadFonts()
 
 void TriggerContentComponent::applyTheme()
 {
-    lookAndFeel_ = std::make_unique<BridgeLookAndFeel>();
+    lookAndFeel_ = std::make_unique<TriggerLookAndFeel>();
     lookAndFeel_->setColour (juce::ComboBox::backgroundColourId, input_);
     lookAndFeel_->setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
     lookAndFeel_->setColour (juce::ComboBox::outlineColourId, row_);
@@ -3212,33 +3224,6 @@ int TriggerContentComponent::comboChannelIndex (const juce::ComboBox& combo)
     if (combo.getSelectedId() == 100)
         return -1;
     return juce::jmax (0, combo.getSelectedItemIndex());
-}
-
-void TriggerContentComponent::styleCombo (juce::ComboBox& c)
-{
-    c.setColour (juce::ComboBox::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
-    c.setColour (juce::ComboBox::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
-    c.setColour (juce::ComboBox::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-}
-
-void TriggerContentComponent::styleEditor (juce::TextEditor& e)
-{
-    e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
-    e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
-    e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x56, 0x5f, 0x6b));
-    e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-    e.setJustification (juce::Justification::centredLeft);
-    e.setIndents (8, 2);
-}
-
-void TriggerContentComponent::styleSlider (juce::Slider& s, bool dbStyle)
-{
-    s.setColour (juce::Slider::backgroundColourId, juce::Colour::fromRGB (0x20, 0x20, 0x20));
-    s.setColour (juce::Slider::trackColourId, dbStyle ? juce::Colour::fromRGB (0x3d, 0x80, 0x70) : juce::Colour::fromRGB (0x1f, 0x3b, 0x45));
-    s.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-    s.setColour (juce::Slider::textBoxTextColourId, juce::Colour::fromRGB (0xc0, 0xc0, 0xc0));
-    s.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
-    s.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
 }
 
 void TriggerContentComponent::syncOscIpWithAdapter()

@@ -24,19 +24,21 @@ jobs:
       - name: Build Release
         run: cmake --build --preset windows-msvc-release
 
-      - name: Package
+      - name: Build Installer
         shell: pwsh
         run: |
           $exe = "build/windows-msvc/EasyTrigger_artefacts/Release/Easy Trigger.exe"
           if (!(Test-Path $exe)) { throw "Release exe not found: $exe" }
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path $exe -DestinationPath "dist/EasyTrigger-win64.zip" -Force
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup not found: $iscc" }
+          & $iscc installer_trigger.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: easytrigger-win64
-          path: dist/EasyTrigger-win64.zip
+          path: Installer/EasyTrigger_Setup_*.exe
 
   build-macos:
     runs-on: macos-latest
@@ -54,28 +56,49 @@ jobs:
 
       - name: Package
         run: |
+          set -euo pipefail
           APP_PATH=$(find build/macos-universal -type d -name "Easy Trigger.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: Easy Trigger.app not found" && exit 1
+            echo "ERROR: Easy Trigger.app not found in build/macos-universal"
+            find build/macos-universal -name "*.app" || true
+            exit 1
           fi
-          VERSION=$(grep -m1 'project(.*VERSION' CMakeLists.txt | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "Found app: $APP_PATH"
+          VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' version.iss | head -1)
+          echo "Version: $VERSION"
           VOLNAME="Easy Trigger ${VERSION}"
           STAGING=$(mktemp -d)
-          cp -R "$APP_PATH"    "$STAGING/Easy Trigger.app"
+          cp -R "$APP_PATH" "$STAGING/Easy Trigger.app"
           ln -sf /Applications "$STAGING/Applications"
           mkdir -p Installer
           DMG_RW="Installer/EasyTrigger-${VERSION}-rw.dmg"
           DMG_PATH="Installer/EasyTrigger-${VERSION}.dmg"
           hdiutil create -volname "$VOLNAME" -srcfolder "$STAGING" -ov -format UDRW "$DMG_RW"
           rm -rf "$STAGING"
-          hdiutil attach "$DMG_RW" -readwrite -nobrowse > /dev/null
-          MOUNT="/Volumes/${VOLNAME}"
-          cp "Icon/Icon Trigger.icns" "$MOUNT/.VolumeIcon.icns"
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_RW" -readwrite -nobrowse)
+          echo "Attached: $MOUNT_OUTPUT"
+          sleep 2
+          MOUNT=$(printf '%s\n' "$MOUNT_OUTPUT" | awk -F'\t' '/\/Volumes\// {print $NF}' | tail -n 1)
+          if [ -z "$MOUNT" ]; then
+            MOUNT=$(hdiutil info | awk -v dmg="$DMG_RW" '
+              $0 ~ dmg { found=1; next }
+              found && /\/Volumes\// { print $1; exit }
+            ')
+          fi
+          if [ ! -d "$MOUNT" ]; then
+            echo "ERROR: Volume not mounted"
+            echo "Expected volume name: $VOLNAME"
+            echo "Resolved mount point: ${MOUNT:-<empty>}"
+            ls /Volumes/
+            exit 1
+          fi
+          cp "Icon/Icon Trigger.icns" "$MOUNT/.VolumeIcon.icns" || true
           xcrun SetFile -a V "$MOUNT/.VolumeIcon.icns" 2>/dev/null || true
-          python3 cmake/set_dmg_icon.py "$MOUNT"
-          hdiutil eject "$MOUNT" -quiet
+          python3 cmake/set_dmg_icon.py "$MOUNT" || true
+          hdiutil detach "$MOUNT" -quiet
           hdiutil convert "$DMG_RW" -ov -format UDZO -o "$DMG_PATH"
           rm -f "$DMG_RW"
+          echo "DMG ready: $DMG_PATH"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -97,7 +120,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/easytrigger-win64/EasyTrigger-win64.zip
+            dist/easytrigger-win64/EasyTrigger_Setup_*.exe
             dist/easytrigger-macos-universal/EasyTrigger-*.dmg
 
           generate_release_notes: true

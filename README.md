@@ -1,74 +1,99 @@
-# Easy Trigger JUCE
+# Easy Trigger
 
-Cross-platform C++/JUCE client for Resolume clip triggers with shared LTC/TC core.
+**Easy Trigger** is a cross-platform desktop application for receiving timecode and firing Resolume clip triggers with frame-accurate offsets.
 
-## Current status
+It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused on Resolume workflows: layer/clip discovery, trigger timing, global offset, and LTC output monitoring.
 
-- JUCE app skeleton is created.
-- Core modules ported/shared from bridge:
-  - `Timecode` (including 29.97 DF math)
-  - `ClockState` (thread-safe monotonic sync model)
-  - `ConfigStore` (JSON load/save)
-- UI implements the Easy Trigger layout for Resolume layer/clip triggers.
+---
 
-## Prerequisites
+## Supported timecode input
 
-### Windows
+| Input | LTC | MTC | ArtNet TC | OSC |
+|-------|:---:|:---:|:---------:|:---:|
+| Easy Trigger | yes | yes | yes | yes |
 
-- Visual Studio 2022 with workload:
-  - Desktop development with C++
-- Git
+- **LTC** - Linear Timecode over audio (ASIO / WDM / CoreAudio)
+- **MTC** - MIDI Timecode
+- **ArtNet TC** - Timecode over Ethernet via ArtNet
+- **OSC** - Open Sound Control timecode input
+
+Additional app features:
+- Resolume layer/clip fetch and trigger table
+- Global trigger offset with `+` / `-` time shift
+- LTC output monitoring and routing
+- Windows installer and macOS DMG packaging in CI
+
+---
+
+## Download
+
+Pre-built installers are attached to each [GitHub Release](../../releases/latest):
+
+| Platform | Asset |
+|----------|-------|
+| Windows  | `EasyTrigger_Setup_<version>.exe` |
+| macOS    | `EasyTrigger-<version>.dmg` |
+
+---
+
+## Build from source
+
+### Prerequisites
+
+**Windows**
+
+- Visual Studio 2022 (workload: *Desktop development with C++*)
 - CMake 3.22+
-
-Quick install (PowerShell as Administrator):
+- Git
 
 ```powershell
-winget install Kitware.CMake
-winget install Git.Git
+winget install Kitware.CMake Git.Git
 ```
 
-### macOS
+- (Optional) [Steinberg ASIO SDK](https://www.steinberg.net/asiosdk/) for ASIO/ReaRoute support.
+  Place it in `ASIOSDK/` inside the repo or set the `ASIO_SDK_DIR` environment variable.
+
+**macOS**
 
 - Xcode + Command Line Tools
 - CMake 3.22+
 - Git
-
-Quick install:
 
 ```bash
 xcode-select --install
 brew install cmake git
 ```
 
-## Build
+### Build
 
-Windows:
-
+**Windows:**
 ```powershell
 ./build_win.ps1
 ```
 
-macOS:
-
+**macOS:**
 ```bash
 chmod +x build_mac.sh
 ./build_mac.sh
 ```
 
-## GitHub Release (Windows + macOS)
+---
 
-- Workflow file: `.github/workflows/release.yml`
-- Trigger options:
-  - push tag `v*` (for example `v2.4.13`)
-  - manual `workflow_dispatch` from GitHub Actions tab
+## Release workflow
+
+GitHub Actions release workflow:
+- file: `.github/workflows/release.yml`
+- triggers:
+  - push tag `v*`
+  - manual `workflow_dispatch`
 
 Tag release example:
 
 ```bash
-git tag v2.4.13
-git push origin v2.4.13
+git tag v2.6.0
+git push origin v2.6.0
 ```
 
 Produced assets:
-- `EasyTrigger-win64.zip` (Windows exe)
-- `EasyTrigger-macos-universal.zip` (macOS .app bundle)
+- `EasyTrigger_Setup_<version>.exe`
+- `EasyTrigger-<version>.dmg`

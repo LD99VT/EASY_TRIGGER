@@ -27,7 +27,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $exe = "build/windows-msvc/EasyTrigger_artefacts/Release/Easy Trigger v2.exe"
+          $exe = "build/windows-msvc/EasyTrigger_artefacts/Release/Easy Trigger.exe"
           if (!(Test-Path $exe)) { throw "Release exe not found: $exe" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Compress-Archive -Path $exe -DestinationPath "dist/EasyTrigger-win64.zip" -Force

@@ -1,8 +1,8 @@
 ; Easy Trigger Installer – Inno Setup 6
-; Filename: EasyTrigger_Setup_2.5.8.exe
+; Filename: EasyTrigger_Setup_{#AppVersion}.exe
 
 #define AppName "Easy Trigger"
-#define AppVersion "2.5.8"
+#include "version.iss"
 #define AppExe "Easy Trigger.exe"
 #define AppPublisher "LUA"
 #define BuildDir "build\windows-msvc\EasyTrigger_artefacts\Release"

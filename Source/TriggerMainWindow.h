@@ -682,6 +682,7 @@ private:
     bool pendingLtcThruMode_ { false };
     bool queryPending_ { false };
     juce::int64 queryStartMs_ { 0 };
+    bool clipReceiveEnabled_ { false };  // true only while a Get Clips query is active
     bool colWidthGuard_ { false };
 
     juce::String customGroupName_ { "Custom Trigger" };

@@ -1221,7 +1221,10 @@ TriggerContentComponent::TriggerContentComponent()
         safe->queryPending_ = false;
         juce::MessageManager::callAsync ([safe]
         {
-            if (safe != nullptr)
+            // Only rebuild rows while a query is active (clipReceiveEnabled_).
+            // This prevents Resolume OSC feedback from custom triggers
+            // recreating clip rows after the user has cleared them.
+            if (safe != nullptr && safe->clipReceiveEnabled_)
                 safe->refreshTriggerRows();
         });
     };
@@ -1870,18 +1873,24 @@ void TriggerContentComponent::timerCallback()
                           getParentComponent());
     }
 
-    const auto clips = clipCollector_.snapshot();
-    int maxLayer = 0;
-    for (const auto& c : clips)
-        maxLayer = juce::jmax (maxLayer, c.layer);
+    // Build status counts directly from triggerRows_ so that Clear clip triggers
+    // immediately reflects 0 clips without waiting for clipCollector_ to drain.
+    int clipCount = 0, customCount = 0, maxLayer = 0;
+    for (const auto& t : triggerRows_)
+    {
+        if (t.isCustom) { ++customCount; }
+        else { ++clipCount; maxLayer = juce::jmax (maxLayer, t.layer); }
+    }
+    auto resolumeStatus = "Layers: " + juce::String (maxLayer)
+                        + " | Clips: " + juce::String (clipCount);
+    if (customCount > 0)
+        resolumeStatus += " | Custom: " + juce::String (customCount);
 
     setTimecodeStatusText ((st.hasInputTc ? "RUNNING" : "STOPPED - no timecode")
                            + juce::String (" | LTC ") + st.ltcOutStatus,
                            st.hasInputTc ? juce::Colour::fromRGB (0x51, 0xc8, 0x7b)
                                          : juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-    setResolumeStatusText ("Layers: " + juce::String (maxLayer)
-                           + " | Clips: " + juce::String ((int) clips.size()),
-                           juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
+    setResolumeStatusText (resolumeStatus, juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
 }
 
 int TriggerContentComponent::getNumRows()
@@ -3482,6 +3491,7 @@ void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
 void TriggerContentComponent::queryResolume()
 {
     juce::String err;
+    clipReceiveEnabled_ = true;
     clipCollector_.clear();
     const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "0.0.0.0";
     if (! clipCollector_.startListening (listenIp, juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()), err))
@@ -3615,6 +3625,10 @@ void TriggerContentComponent::openSettingsMenu()
                                  break;
                              case 11:
                              {
+                                 // Stop receiving Resolume OSC updates so custom triggers
+                                 // cannot cause refreshTriggerRows() to recreate clips.
+                                 safe->clipReceiveEnabled_ = false;
+                                 safe->clipCollector_.clear();
                                  // Remove all non-custom clips and their state
                                  for (auto it = safe->triggerRows_.begin(); it != safe->triggerRows_.end();)
                                      it = (! it->isCustom) ? safe->triggerRows_.erase (it) : ++it;

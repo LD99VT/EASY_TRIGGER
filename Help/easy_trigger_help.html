@@ -133,6 +133,32 @@
       font-size: 13px;
     }
 
+    /* ─── Language switcher ──────────────────────────── */
+    .lang-switcher { display: flex; gap: 6px; margin-bottom: 16px; padding-left: 4px; }
+    .lang-btn {
+      padding: 3px 10px;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: var(--row);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: .06em;
+      transition: background .12s, color .12s;
+    }
+    .lang-btn:hover { background: var(--panel); color: var(--text); }
+    .lang-btn.active { background: var(--accent); color: #111; border-color: var(--accent); }
+
+    /* Hide UA content by default */
+    [lang="ua"] { display: none; }
+    /* When UA active: hide EN, show UA */
+    html.lang-ua [lang="en"] { display: none; }
+    html.lang-ua [lang="ua"] { display: revert; }
+    html.lang-ua span[lang="ua"] { display: inline; }
+    html.lang-ua p[lang="ua"],
+    html.lang-ua div[lang="ua"] { display: block; }
+
     @media (max-width: 760px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
@@ -145,27 +171,32 @@
 
   <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════ -->
   <nav class="sidebar">
-    <div class="sidebar-title">Contents</div>
+    <div class="lang-switcher">
+      <button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" data-lang="ua" onclick="setLang('ua')">UA</button>
+    </div>
+    <div class="sidebar-title">
+      <span lang="en">Contents</span><span lang="ua">Зміст</span>
+    </div>
     <ul class="nav">
-      <li><a href="#overview">Overview</a></li>
-      <li><a href="#header">Header</a></li>
-      <li><a href="#clock">Timecode Clock</a></li>
-      <li><a href="#input">Timecode Input</a></li>
-      <li><a class="sub" href="#ltc-in">  LTC</a></li>
-      <li><a class="sub" href="#mtc-in">  MTC</a></li>
-      <li><a class="sub" href="#artnet-in">  ArtNet</a></li>
-      <li><a class="sub" href="#osc-in">  OSC</a></li>
-      <li><a href="#ltc-out">LTC Output</a></li>
-      <li><a href="#resolume">Resolume Settings</a></li>
-      <li><a href="#table-layers">Clip Table – Layers</a></li>
-      <li><a href="#table-clips">Clip Table – Clips</a></li>
-      <li><a href="#table-custom">Custom Triggers</a></li>
-      <li><a href="#buttons">Buttons</a></li>
-      <li><a href="#settings">Settings Menu</a></li>
-      <li><a href="#file-format">File Format (.etr)</a></li>
-      <li><a href="#osc-addresses">OSC Addresses</a></li>
-      <li><a href="#tray">System Tray</a></li>
-      <li><a href="#troubleshooting">Troubleshooting</a></li>
+      <li><a href="#header"><span lang="en">Header</span><span lang="ua">Заголовок</span></a></li>
+      <li><a href="#clock"><span lang="en">Timecode Clock</span><span lang="ua">Годинник тайм-коду</span></a></li>
+      <li><a href="#input"><span lang="en">Timecode Input</span><span lang="ua">Вхід тайм-коду</span></a></li>
+      <li><a class="sub" href="#ltc-in">LTC</a></li>
+      <li><a class="sub" href="#mtc-in">MTC</a></li>
+      <li><a class="sub" href="#artnet-in">ArtNet</a></li>
+      <li><a class="sub" href="#osc-in">OSC</a></li>
+      <li><a href="#ltc-out"><span lang="en">LTC Output</span><span lang="ua">Вихід LTC</span></a></li>
+      <li><a href="#resolume"><span lang="en">Resolume Settings</span><span lang="ua">Налаштування Resolume</span></a></li>
+      <li><a href="#table-layers"><span lang="en">Clip Table – Layers</span><span lang="ua">Таблиця – Шари</span></a></li>
+      <li><a href="#table-clips"><span lang="en">Clip Table – Clips</span><span lang="ua">Таблиця – Кліпи</span></a></li>
+      <li><a href="#table-custom"><span lang="en">Custom Triggers</span><span lang="ua">Власні тригери</span></a></li>
+      <li><a href="#buttons"><span lang="en">Buttons</span><span lang="ua">Кнопки</span></a></li>
+      <li><a href="#settings"><span lang="en">Settings Menu</span><span lang="ua">Меню налаштувань</span></a></li>
+      <li><a href="#file-format"><span lang="en">File Format (.etr)</span><span lang="ua">Формат файлу (.etr)</span></a></li>
+      <li><a href="#osc-addresses"><span lang="en">OSC Addresses</span><span lang="ua">OSC-адреси</span></a></li>
+      <li><a href="#tray"><span lang="en">System Tray</span><span lang="ua">Системний трей</span></a></li>
+      <li><a href="#troubleshooting"><span lang="en">Troubleshooting</span><span lang="ua">Усунення несправностей</span></a></li>
     </ul>
   </nav>
 
@@ -175,237 +206,289 @@
     <!-- HERO -->
     <div class="hero">
       <h1>Easy Trigger</h1>
-      <div class="subtitle">Timecode-driven Resolume Clip Trigger – User Guide</div>
-      <div class="desc">
+      <div class="subtitle">
+        <span lang="en">Timecode-driven Resolume Clip Trigger – User Guide</span>
+        <span lang="ua">Тригер кліпів Resolume на основі тайм-коду – Посібник користувача</span>
+      </div>
+      <div class="desc" lang="en">
         Easy Trigger receives a timecode signal (LTC, MTC, Art-Net, or OSC), compares the current
         position against a list of configured clip trigger times, and fires OSC commands to Resolume
         Arena / Avenue to play the matching clips at the right moment. Each clip has an editable
         trigger time, optional countdown, duration, and an end-of-clip action. Custom Triggers allow
         firing arbitrary Resolume columns or layer/clip combinations without a clip list.
       </div>
+      <div class="desc" lang="ua">
+        Easy Trigger отримує сигнал тайм-коду (LTC, MTC, Art-Net або OSC), порівнює поточну позицію
+        зі списком налаштованих часів тригера кліпів та надсилає OSC-команди до Resolume Arena / Avenue
+        для відтворення відповідних кліпів у потрібний момент. Кожен кліп має редаговані час тригера,
+        необов'язковий зворотний відлік, тривалість та дію після завершення. Власні тригери дозволяють
+        запускати довільні стовпці Resolume або комбінації шар/кліп без списку кліпів.
+      </div>
     </div>
 
     <!-- ── HEADER ──────────────────────────────────────────────────────── -->
-    <h2 id="header">Header</h2>
-    <p>The top bar of the window. Contains the app name, version, and Help button.</p>
+    <h2 id="header"><span lang="en">Header</span><span lang="ua">Заголовок</span></h2>
+    <p lang="en">The top bar of the window. Contains the app name, version, and Help button.</p>
+    <p lang="ua">Верхня панель вікна. Містить назву застосунку, версію та кнопку довідки.</p>
     <table class="fields">
-      <tr><th>Element</th><th>Description</th></tr>
-      <tr><td>EASY TRIGGER</td><td>Application title. Two-word coloured label that identifies the application.</td></tr>
-      <tr><td>Version label</td><td>Current version string (e.g. <code>v2.5.8</code>).</td></tr>
-      <tr><td><code>?</code> button</td><td>Opens this help file in the system browser from the <code>Help/</code> folder next to the executable.</td></tr>
+      <tr><th><span lang="en">Element</span><span lang="ua">Елемент</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td>EASY TRIGGER</td><td><span lang="en">Application title. Two-word coloured label that identifies the application.</span><span lang="ua">Назва застосунку. Двослівна кольорова мітка для ідентифікації застосунку.</span></td></tr>
+      <tr><td><span lang="en">Version label</span><span lang="ua">Мітка версії</span></td><td><span lang="en">Current version string (e.g. <code>v2.5.8</code>).</span><span lang="ua">Рядок поточної версії (наприклад, <code>v2.5.8</code>).</span></td></tr>
+      <tr><td><code>?</code> <span lang="en">button</span><span lang="ua">кнопка</span></td><td><span lang="en">Opens this help file in the system browser from the <code>Help/</code> folder next to the executable.</span><span lang="ua">Відкриває цей файл довідки у браузері системи з папки <code>Help/</code> поряд з виконуваним файлом.</span></td></tr>
     </table>
 
     <!-- ── CLOCK ──────────────────────────────────────────────────────── -->
-    <h2 id="clock">Timecode Clock</h2>
-    <p>Large display showing the active timecode position. Updated every incoming frame.</p>
+    <h2 id="clock"><span lang="en">Timecode Clock</span><span lang="ua">Годинник тайм-коду</span></h2>
+    <p lang="en">Large display showing the active timecode position. Updated every incoming frame.</p>
+    <p lang="ua">Великий дисплей, що показує активну позицію тайм-коду. Оновлюється з кожним вхідним кадром.</p>
     <table class="fields">
-      <tr><th>Element</th><th>Description</th></tr>
-      <tr><td>Clock display</td><td>Current timecode in <code>HH:MM:SS:FF</code> format. Shows <code>00:00:00:00</code> when no signal is present.</td></tr>
-      <tr><td>Status text</td><td>Below the clock. Shows <span class="ok">RUNNING – 25 FPS</span> when timecode is active, or <span class="bad">STOPPED</span> with a reason when the input is not running.</td></tr>
+      <tr><th><span lang="en">Element</span><span lang="ua">Елемент</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Clock display</span><span lang="ua">Дисплей годинника</span></td><td><span lang="en">Current timecode in <code>HH:MM:SS:FF</code> format. Shows <code>00:00:00:00</code> when no signal is present.</span><span lang="ua">Поточний тайм-код у форматі <code>HH:MM:SS:FF</code>. Показує <code>00:00:00:00</code>, коли сигнал відсутній.</span></td></tr>
+      <tr><td><span lang="en">Status text</span><span lang="ua">Текст статусу</span></td><td><span lang="en">Below the clock. Shows <span class="ok">RUNNING – 25 FPS</span> when timecode is active, or <span class="bad">STOPPED</span> with a reason when the input is not running.</span><span lang="ua">Під годинником. Показує <span class="ok">RUNNING – 25 FPS</span> при активному тайм-коді або <span class="bad">STOPPED</span> з причиною, коли вхід не запущено.</span></td></tr>
     </table>
 
     <!-- ── TIMECODE INPUT ─────────────────────────────────────────────── -->
-    <h2 id="input">Timecode Input Settings</h2>
-    <p>The collapsible left panel section. Select the source type from the dropdown, then configure the fields that appear for that source. Switching source type immediately restarts the listener.</p>
+    <h2 id="input"><span lang="en">Timecode Input Settings</span><span lang="ua">Налаштування входу тайм-коду</span></h2>
+    <p lang="en">The collapsible left panel section. Select the source type from the dropdown, then configure the fields that appear for that source. Switching source type immediately restarts the listener.</p>
+    <p lang="ua">Розгортувана секція лівої панелі. Виберіть тип джерела з розкривного списку, потім налаштуйте поля, що з'являються для цього джерела. Перемикання типу джерела негайно перезапускає слухач.</p>
 
     <h3 id="ltc-in">LTC Input</h3>
-    <p>Decodes LTC (Linear Timecode) from an audio input device.</p>
+    <p lang="en">Decodes LTC (Linear Timecode) from an audio input device.</p>
+    <p lang="ua">Декодує LTC (Linear Timecode) з аудіовхідного пристрою.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Driver</td><td>Audio host API: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS), or <b>ASIO</b> (Windows low-latency, requires ASIO SDK build). <b>Default (all devices)</b> lists everything.</td></tr>
-      <tr><td>Device (Input)</td><td>The audio input device carrying the LTC signal. Filtered by the selected driver.</td></tr>
-      <tr><td>Channel</td><td>Input channel to decode: <b>1–8</b> or <b>1+2</b> (stereo merge). Most rigs use a single mono channel.</td></tr>
-      <tr><td>Sample Rate</td><td><b>Default</b> uses the device's current rate. Set explicitly (44100, 48000, 96000, etc.) if the device does not auto-negotiate. Must match the device setting.</td></tr>
-      <tr><td>Level meter</td><td>Real-time bar showing input signal strength. Should show a healthy mid-range when LTC is present. Empty bar means no audio is arriving.</td></tr>
-      <tr><td>Input Gain</td><td>Gain from <code>−24 dB</code> to <code>+24 dB</code> (0.1 dB steps). Double-click to reset to 0 dB. Adjust to normalise the LTC signal level before decoding.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Driver</span><span lang="ua">Драйвер</span></td><td><span lang="en">Audio host API: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS), or <b>ASIO</b> (Windows low-latency, requires ASIO SDK build). <b>Default (all devices)</b> lists everything.</span><span lang="ua">Аудіо API хоста: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS) або <b>ASIO</b> (низька затримка Windows, потребує збірки з ASIO SDK). <b>Default (all devices)</b> показує всі пристрої.</span></td></tr>
+      <tr><td><span lang="en">Device (Input)</span><span lang="ua">Пристрій (вхід)</span></td><td><span lang="en">The audio input device carrying the LTC signal. Filtered by the selected driver.</span><span lang="ua">Аудіовхідний пристрій, що несе сигнал LTC. Фільтрується за вибраним драйвером.</span></td></tr>
+      <tr><td><span lang="en">Channel</span><span lang="ua">Канал</span></td><td><span lang="en">Input channel to decode: <b>1–8</b> or <b>1+2</b> (stereo merge). Most rigs use a single mono channel.</span><span lang="ua">Канал для декодування: <b>1–8</b> або <b>1+2</b> (стерео суміш). Більшість налаштувань використовують один моноканал.</span></td></tr>
+      <tr><td><span lang="en">Sample Rate</span><span lang="ua">Частота дискретизації</span></td><td><span lang="en"><b>Default</b> uses the device's current rate. Set explicitly (44100, 48000, 96000, etc.) if the device does not auto-negotiate. Must match the device setting.</span><span lang="ua"><b>Default</b> використовує поточну частоту пристрою. Встановіть явно (44100, 48000, 96000 тощо), якщо пристрій не узгоджується автоматично. Повинна відповідати налаштуванням пристрою.</span></td></tr>
+      <tr><td><span lang="en">Level meter</span><span lang="ua">Індикатор рівня</span></td><td><span lang="en">Real-time bar showing input signal strength. Should show a healthy mid-range when LTC is present. Empty bar means no audio is arriving.</span><span lang="ua">Смуга рівня вхідного сигналу в реальному часі. Повинна показувати здоровий середній рівень при наявності LTC. Порожня смуга означає відсутність аудіо.</span></td></tr>
+      <tr><td><span lang="en">Input Gain</span><span lang="ua">Вхідне посилення</span></td><td><span lang="en">Gain from <code>−24 dB</code> to <code>+24 dB</code> (0.1 dB steps). Double-click to reset to 0 dB. Adjust to normalise the LTC signal level before decoding.</span><span lang="ua">Посилення від <code>−24 дБ</code> до <code>+24 дБ</code> (крок 0,1 дБ). Двічі клацніть для скидання до 0 дБ. Регулюйте для нормалізації рівня сигналу LTC перед декодуванням.</span></td></tr>
     </table>
 
     <h3 id="mtc-in">MTC Input</h3>
-    <p>Receives MIDI Timecode from a MIDI port.</p>
+    <p lang="en">Receives MIDI Timecode from a MIDI port.</p>
+    <p lang="ua">Отримує MIDI Timecode від MIDI-порту.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>MIDI Input</td><td>Dropdown of available MIDI input ports. Select the port sending MTC. Virtual ports from DAWs appear here too.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">MIDI Input</span><span lang="ua">MIDI-вхід</span></td><td><span lang="en">Dropdown of available MIDI input ports. Select the port sending MTC. Virtual ports from DAWs appear here too.</span><span lang="ua">Розкривний список доступних MIDI-входів. Виберіть порт, що надсилає MTC. Тут також відображаються віртуальні порти з DAW.</span></td></tr>
     </table>
 
     <h3 id="artnet-in">ArtNet Input</h3>
-    <p>Receives Art-Net Timecode packets over UDP on port 6454.</p>
+    <p lang="en">Receives Art-Net Timecode packets over UDP on port 6454.</p>
+    <p lang="ua">Отримує пакети Art-Net Timecode по UDP на порті 6454.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Adapter</td><td>Local network interface to listen on. <b>ALL INTERFACES</b> binds to <code>0.0.0.0</code>.</td></tr>
-      <tr><td>Listen IP</td><td>Bind address derived from the adapter. Can be overridden manually.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Adapter</span><span lang="ua">Адаптер</span></td><td><span lang="en">Local network interface to listen on. <b>ALL INTERFACES</b> binds to <code>0.0.0.0</code>.</span><span lang="ua">Локальний мережевий інтерфейс для прослуховування. <b>ALL INTERFACES</b> прив'язується до <code>0.0.0.0</code>.</span></td></tr>
+      <tr><td><span lang="en">Listen IP</span><span lang="ua">IP прослуховування</span></td><td><span lang="en">Bind address derived from the adapter. Can be overridden manually.</span><span lang="ua">Адреса прив'язки від адаптера. Можна замінити вручну.</span></td></tr>
     </table>
 
     <h3 id="osc-in">OSC Input</h3>
-    <p>Receives timecode position via OSC messages over UDP. Compatible with Reaper and other OSC-capable software.</p>
+    <p lang="en">Receives timecode position via OSC messages over UDP. Compatible with Reaper and other OSC-capable software.</p>
+    <p lang="ua">Отримує позицію тайм-коду через OSC-повідомлення по UDP. Сумісний з Reaper та іншим OSC-сумісним програмним забезпеченням.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Adapter</td><td>Network interface to bind the OSC listener.</td></tr>
-      <tr><td>Listen IP</td><td>IP address to bind. Use <code>127.0.0.1</code> for same-machine senders, <code>0.0.0.0</code> for network-wide.</td></tr>
-      <tr><td>Port</td><td>UDP port number (default <code>9000</code>). Must match the sender's configured output port.</td></tr>
-      <tr><td>FPS</td><td>Frame rate used to interpret incoming float time values (24 / 25 / 29.97 / 30). Match your project FPS.</td></tr>
-      <tr><td>String address</td><td>OSC path for string timecode messages (e.g. <code>/frames/str</code>). Expects <code>HH:MM:SS:FF</code> or <code>HH:MM:SS.FF</code>.</td></tr>
-      <tr><td>Float address</td><td>OSC path for float position messages (e.g. <code>/time</code>). Value is interpreted as seconds × FPS.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Adapter</span><span lang="ua">Адаптер</span></td><td><span lang="en">Network interface to bind the OSC listener.</span><span lang="ua">Мережевий інтерфейс для прив'язки слухача OSC.</span></td></tr>
+      <tr><td><span lang="en">Listen IP</span><span lang="ua">IP прослуховування</span></td><td><span lang="en">IP address to bind. Use <code>127.0.0.1</code> for same-machine senders, <code>0.0.0.0</code> for network-wide.</span><span lang="ua">IP-адреса прив'язки. Використовуйте <code>127.0.0.1</code> для відправників на тій самій машині, <code>0.0.0.0</code> для мережі.</span></td></tr>
+      <tr><td><span lang="en">Port</span><span lang="ua">Порт</span></td><td><span lang="en">UDP port number (default <code>9000</code>). Must match the sender's configured output port.</span><span lang="ua">Номер UDP-порту (за замовчуванням <code>9000</code>). Повинен відповідати вихідному порту відправника.</span></td></tr>
+      <tr><td>FPS</td><td><span lang="en">Frame rate used to interpret incoming float time values (24 / 25 / 29.97 / 30). Match your project FPS.</span><span lang="ua">Частота кадрів для інтерпретації вхідних значень часу float (24 / 25 / 29.97 / 30). Відповідає частоті кадрів проекту.</span></td></tr>
+      <tr><td><span lang="en">String address</span><span lang="ua">Адреса рядка</span></td><td><span lang="en">OSC path for string timecode messages (e.g. <code>/frames/str</code>). Expects <code>HH:MM:SS:FF</code> or <code>HH:MM:SS.FF</code>.</span><span lang="ua">OSC-шлях для повідомлень тайм-коду у форматі рядка (наприклад, <code>/frames/str</code>). Очікує <code>HH:MM:SS:FF</code> або <code>HH:MM:SS.FF</code>.</span></td></tr>
+      <tr><td><span lang="en">Float address</span><span lang="ua">Адреса числа</span></td><td><span lang="en">OSC path for float position messages (e.g. <code>/time</code>). Value is interpreted as seconds × FPS.</span><span lang="ua">OSC-шлях для числових позиційних повідомлень (наприклад, <code>/time</code>). Значення інтерпретується як секунди × FPS.</span></td></tr>
     </table>
 
     <!-- ── LTC OUTPUT ────────────────────────────────────────────────── -->
-    <h2 id="ltc-out">LTC Output</h2>
-    <p>Generates an LTC audio signal from the decoded timecode and sends it to a selected audio output device. When <b>Thru</b> mode is active, the raw input audio is routed directly instead.</p>
+    <h2 id="ltc-out"><span lang="en">LTC Output</span><span lang="ua">Вихід LTC</span></h2>
+    <p lang="en">Generates an LTC audio signal from the decoded timecode and sends it to a selected audio output device. When <b>Thru</b> mode is active, the raw input audio is routed directly instead.</p>
+    <p lang="ua">Генерує аудіосигнал LTC з розкодованого тайм-коду та надсилає його до вибраного аудіовихідного пристрою. Коли активний режим <b>Thru</b>, вхідне аудіо передається безпосередньо без перетворення.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Out LTC toggle</td><td>Enable or disable the LTC output stream. When disabled, no audio is sent to the output device regardless of the Thru setting.</td></tr>
-      <tr><td>Thru dot</td><td>Clickable toggle in the section header. When <b>ON</b> (and the Out LTC switch is also ON), the raw LTC audio captured from the input device is passed directly to the selected output — no decode / re-encode cycle. This preserves the original signal and eliminates encoder latency. When <b>OFF</b>, the normal timecode encoder output is used. The LTC input source must be running for Thru to produce audio.</td></tr>
-      <tr><td>Driver</td><td>Audio host API for the output device: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS), or <b>ASIO</b>.</td></tr>
-      <tr><td>Device (Output)</td><td>Audio output device that will carry the LTC signal.</td></tr>
-      <tr><td>Channel</td><td>Output channel: 1–8 or <code>1+2</code> (stereo duplicate). Use <code>1+2</code> if the downstream device requires a stereo feed.</td></tr>
-      <tr><td>Sample Rate</td><td>Must match the device's configured rate. Mismatched rates cause pitch-shifted or garbled LTC.</td></tr>
-      <tr><td>Level</td><td>Output level from <code>−24 dB</code> to <code>+24 dB</code>. Double-click to reset to 0 dB.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Out LTC toggle</span><span lang="ua">Перемикач Out LTC</span></td><td><span lang="en">Enable or disable the LTC output stream. When disabled, no audio is sent to the output device regardless of the Thru setting.</span><span lang="ua">Вмикає або вимикає вихідний потік LTC. Коли вимкнено, аудіо не надсилається на вихідний пристрій незалежно від налаштування Thru.</span></td></tr>
+      <tr><td><span lang="en">Thru dot</span><span lang="ua">Крапка Thru</span></td><td><span lang="en">Clickable toggle in the section header. When <b>ON</b> (and the Out LTC switch is also ON), the raw LTC audio captured from the input device is passed directly to the selected output — no decode / re-encode cycle. This preserves the original signal and eliminates encoder latency. When <b>OFF</b>, the normal timecode encoder output is used. The LTC input source must be running for Thru to produce audio.</span><span lang="ua">Клікабельний перемикач у заголовку секції. Коли <b>УВІМКНЕНО</b> (і перемикач Out LTC теж увімкнено), необроблений LTC-аудіо з вхідного пристрою передається безпосередньо на вихід без декодування/повторного кодування. Це зберігає оригінальний сигнал та усуває затримку кодера. Коли <b>ВИМКНЕНО</b>, використовується нормальний вихід кодера тайм-коду. Джерело LTC-входу повинно бути запущено для роботи Thru.</span></td></tr>
+      <tr><td><span lang="en">Driver</span><span lang="ua">Драйвер</span></td><td><span lang="en">Audio host API for the output device: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS), or <b>ASIO</b>.</span><span lang="ua">Аудіо API хоста для вихідного пристрою: <b>WASAPI</b>, <b>DirectSound</b> (Windows), <b>CoreAudio</b> (macOS) або <b>ASIO</b>.</span></td></tr>
+      <tr><td><span lang="en">Device (Output)</span><span lang="ua">Пристрій (вихід)</span></td><td><span lang="en">Audio output device that will carry the LTC signal.</span><span lang="ua">Аудіовихідний пристрій для передачі сигналу LTC.</span></td></tr>
+      <tr><td><span lang="en">Channel</span><span lang="ua">Канал</span></td><td><span lang="en">Output channel: 1–8 or <code>1+2</code> (stereo duplicate). Use <code>1+2</code> if the downstream device requires a stereo feed.</span><span lang="ua">Вихідний канал: 1–8 або <code>1+2</code> (стерео дублювання). Використовуйте <code>1+2</code>, якщо пристрій вимагає стерео-подачу.</span></td></tr>
+      <tr><td><span lang="en">Sample Rate</span><span lang="ua">Частота дискретизації</span></td><td><span lang="en">Must match the device's configured rate. Mismatched rates cause pitch-shifted or garbled LTC.</span><span lang="ua">Повинна відповідати налаштованій частоті пристрою. Невідповідність частот спричиняє зсунутий або спотворений LTC.</span></td></tr>
+      <tr><td><span lang="en">Level</span><span lang="ua">Рівень</span></td><td><span lang="en">Output level from <code>−24 dB</code> to <code>+24 dB</code>. Double-click to reset to 0 dB.</span><span lang="ua">Рівень виходу від <code>−24 дБ</code> до <code>+24 дБ</code>. Двічі клацніть для скидання до 0 дБ.</span></td></tr>
     </table>
 
     <!-- ── RESOLUME ───────────────────────────────────────────────────── -->
-    <h2 id="resolume">Resolume Settings</h2>
-    <p>Configures the connection between Easy Trigger and Resolume Arena / Avenue.</p>
+    <h2 id="resolume"><span lang="en">Resolume Settings</span><span lang="ua">Налаштування Resolume</span></h2>
+    <p lang="en">Configures the connection between Easy Trigger and Resolume Arena / Avenue.</p>
+    <p lang="ua">Налаштовує з'єднання між Easy Trigger та Resolume Arena / Avenue.</p>
     <table class="fields">
-      <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Output IP</td><td>IP address of the machine running Resolume. Use <code>127.0.0.1</code> if Resolume is on the same computer. Otherwise enter the network IP of the Resolume machine.</td></tr>
-      <tr><td>Output Port</td><td>UDP port that Resolume listens on for incoming OSC (default <code>7000</code>). Must match the OSC Server port in Resolume's preferences.</td></tr>
-      <tr><td>Input Port</td><td>UDP port on which Easy Trigger listens for OSC feedback from Resolume (default <code>7001</code>). Must match the OSC Client port in Resolume. Used to receive the current connected-clip state so rows highlight correctly.</td></tr>
-      <tr><td>Sync indicator</td><td>Coloured dot next to the Resolume header. <span class="ok">Green</span> = OSC listener is running and Resolume feedback is being received. <span class="bad">Red / grey</span> = listener not running or no feedback arriving.</td></tr>
-      <tr><td>Global Offset</td><td>A signed timecode offset applied to every trigger time before comparison. Format: <code>±HH:MM:SS:FF</code> (e.g. <code>-00:00:00:05</code> fires clips 5 frames early). Useful to compensate for Resolume or network latency.</td></tr>
+      <tr><th><span lang="en">Field</span><span lang="ua">Поле</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Output IP</span><span lang="ua">IP виходу</span></td><td><span lang="en">IP address of the machine running Resolume. Use <code>127.0.0.1</code> if Resolume is on the same computer. Otherwise enter the network IP of the Resolume machine.</span><span lang="ua">IP-адреса машини, на якій запущено Resolume. Використовуйте <code>127.0.0.1</code>, якщо Resolume на тому самому комп'ютері. Інакше введіть мережеву IP-адресу машини Resolume.</span></td></tr>
+      <tr><td><span lang="en">Output Port</span><span lang="ua">Вихідний порт</span></td><td><span lang="en">UDP port that Resolume listens on for incoming OSC (default <code>7000</code>). Must match the OSC Server port in Resolume's preferences.</span><span lang="ua">UDP-порт, на якому Resolume прослуховує вхідний OSC (за замовчуванням <code>7000</code>). Повинен відповідати порту OSC Server в налаштуваннях Resolume.</span></td></tr>
+      <tr><td><span lang="en">Input Port</span><span lang="ua">Вхідний порт</span></td><td><span lang="en">UDP port on which Easy Trigger listens for OSC feedback from Resolume (default <code>7001</code>). Must match the OSC Client port in Resolume. Used to receive the current connected-clip state so rows highlight correctly.</span><span lang="ua">UDP-порт, на якому Easy Trigger прослуховує OSC-зворотний зв'язок від Resolume (за замовчуванням <code>7001</code>). Повинен відповідати порту OSC Client у Resolume. Використовується для отримання стану підключеного кліпу для підсвічування рядків.</span></td></tr>
+      <tr><td><span lang="en">Sync indicator</span><span lang="ua">Індикатор синхронізації</span></td><td><span lang="en">Coloured dot next to the Resolume header. <span class="ok">Green</span> = OSC listener is running and Resolume feedback is being received. <span class="bad">Red / grey</span> = listener not running or no feedback arriving.</span><span lang="ua">Кольорова крапка поряд із заголовком Resolume. <span class="ok">Зелена</span> = OSC-слухач запущено і зворотний зв'язок від Resolume надходить. <span class="bad">Червона / сіра</span> = слухач не запущено або зворотний зв'язок не надходить.</span></td></tr>
+      <tr><td><span lang="en">Global Offset</span><span lang="ua">Глобальне зміщення</span></td><td><span lang="en">A signed timecode offset applied to every trigger time before comparison. Format: <code>±HH:MM:SS:FF</code> (e.g. <code>-00:00:00:05</code> fires clips 5 frames early). Useful to compensate for Resolume or network latency.</span><span lang="ua">Знакове зміщення тайм-коду, що застосовується до кожного часу тригера перед порівнянням. Формат: <code>±HH:MM:SS:FF</code> (наприклад, <code>-00:00:00:05</code> запускає кліпи на 5 кадрів раніше). Корисно для компенсації затримки Resolume або мережі.</span></td></tr>
     </table>
-    <div class="note">In Resolume, go to <b>Preferences → OSC</b> and enable the OSC server on the port set in Output Port, and the OSC client pointing to Easy Trigger's machine on the Input Port.</div>
+    <div class="note" lang="en">In Resolume, go to <b>Preferences → OSC</b> and enable the OSC server on the port set in Output Port, and the OSC client pointing to Easy Trigger's machine on the Input Port.</div>
+    <div class="note" lang="ua">У Resolume перейдіть до <b>Preferences → OSC</b> і увімкніть OSC-сервер на порті, вказаному в Output Port, та OSC-клієнт, що вказує на машину Easy Trigger, на Input Port.</div>
 
     <!-- ── TABLE LAYERS ───────────────────────────────────────────────── -->
-    <h2 id="table-layers">Clip Table – Layer Headers</h2>
-    <p>The right panel displays a scrollable table of all Resolume layers and clips. Each layer has a header row followed by its clip rows.</p>
+    <h2 id="table-layers"><span lang="en">Clip Table – Layer Headers</span><span lang="ua">Таблиця кліпів – Заголовки шарів</span></h2>
+    <p lang="en">The right panel displays a scrollable table of all Resolume layers and clips. Each layer has a header row followed by its clip rows.</p>
+    <p lang="ua">Права панель відображає прокручувану таблицю всіх шарів та кліпів Resolume. Кожен шар має рядок заголовка з наступними рядками кліпів.</p>
     <table class="fields">
-      <tr><th>Element</th><th>Description</th></tr>
-      <tr><td>▶ / ▼ arrow button</td><td>Collapses or expands the layer's clip rows. Click to hide/show all clips in that layer without changing any settings.</td></tr>
-      <tr><td>Layer checkbox</td><td>Enables or disables the entire layer for timecode triggering. When unchecked, no clips in that layer will fire regardless of their individual checkbox state.</td></tr>
-      <tr><td>Layer name</td><td>Name of the Resolume layer, fetched from Resolume via the <b>Get Clips</b> button. Read-only — edit layer names in Resolume itself.</td></tr>
+      <tr><th><span lang="en">Element</span><span lang="ua">Елемент</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td>▶ / ▼ <span lang="en">arrow button</span><span lang="ua">кнопка стрілки</span></td><td><span lang="en">Collapses or expands the layer's clip rows. Click to hide/show all clips in that layer without changing any settings.</span><span lang="ua">Згортає або розгортає рядки кліпів шару. Клацніть для приховання/показу всіх кліпів у шарі без зміни налаштувань.</span></td></tr>
+      <tr><td><span lang="en">Layer checkbox</span><span lang="ua">Прапорець шару</span></td><td><span lang="en">Enables or disables the entire layer for timecode triggering. When unchecked, no clips in that layer will fire regardless of their individual checkbox state.</span><span lang="ua">Вмикає або вимикає весь шар для тригерингу тайм-кодом. Коли знято прапорець, жоден кліп у цьому шарі не спрацює незалежно від стану їхніх прапорців.</span></td></tr>
+      <tr><td><span lang="en">Layer name</span><span lang="ua">Назва шару</span></td><td><span lang="en">Name of the Resolume layer, fetched from Resolume via the <b>Get Clips</b> button. Read-only — edit layer names in Resolume itself.</span><span lang="ua">Назва шару Resolume, отримана з Resolume через кнопку <b>Get Clips</b>. Лише для читання — редагуйте назви шарів безпосередньо у Resolume.</span></td></tr>
     </table>
 
     <!-- ── TABLE CLIPS ────────────────────────────────────────────────── -->
-    <h2 id="table-clips">Clip Table – Clip Rows</h2>
-    <p>Each clip row in the table represents one Resolume clip slot. Rows are coloured to show their state:</p>
-    <ul>
+    <h2 id="table-clips"><span lang="en">Clip Table – Clip Rows</span><span lang="ua">Таблиця кліпів – Рядки кліпів</span></h2>
+    <p lang="en">Each clip row in the table represents one Resolume clip slot. Rows are coloured to show their state:</p>
+    <p lang="ua">Кожен рядок кліпу в таблиці представляє один слот кліпу Resolume. Рядки забарвлені для відображення їхнього стану:</p>
+    <ul lang="en">
       <li><span class="ok">Green row</span> — this clip is currently active/connected in Resolume (feedback received via OSC Input Port).</li>
       <li><span class="warn">Orange row</span> — this clip was fired by a timecode trigger in this session.</li>
       <li>Default (dark) — inactive or not triggered.</li>
     </ul>
+    <ul lang="ua">
+      <li><span class="ok">Зелений рядок</span> — цей кліп зараз активний/підключений у Resolume (зворотний зв'язок отримано через OSC Input Port).</li>
+      <li><span class="warn">Помаранчевий рядок</span> — цей кліп був запущений тригером тайм-коду в цій сесії.</li>
+      <li>Стандартний (темний) — неактивний або не запущений.</li>
+    </ul>
     <table class="fields">
-      <tr><th>Column</th><th>Description</th></tr>
-      <tr><td>Checkbox</td><td>Enables or disables this specific clip for timecode triggering. When unchecked, the clip is skipped even if its Trigger Time matches the current timecode.</td></tr>
-      <tr><td>Clip name</td><td>The clip slot name as reported by Resolume. Displayed read-only. Updated when <b>Get Clips</b> is used.</td></tr>
-      <tr><td>Countdown</td><td>Shows the time remaining until this clip's Trigger Time. Counts down from a positive value to zero as the timecode approaches. Displayed as <code>−HH:MM:SS:FF</code>. Grey when far away, becomes more visible as it approaches.</td></tr>
-      <tr><td>Trigger Time</td><td>The timecode position at which this clip fires. Editable — click to edit inline. Format: <code>HH:MM:SS:FF</code>. The Global Offset is subtracted from this value before comparing. Leave empty or set to <code>00:00:00:00</code> to disable triggering for this clip.</td></tr>
-      <tr><td>Duration</td><td>How long (in timecode) this clip is expected to play. Used by the End Action to determine when to fire the post-clip action. Format: <code>HH:MM:SS:FF</code>. Editable inline.</td></tr>
-      <tr><td>End Action</td><td>Action taken when the timecode reaches <code>Trigger Time + Duration</code>. Cycles through three states by clicking:<br>
+      <tr><th><span lang="en">Column</span><span lang="ua">Стовпець</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Checkbox</span><span lang="ua">Прапорець</span></td><td><span lang="en">Enables or disables this specific clip for timecode triggering. When unchecked, the clip is skipped even if its Trigger Time matches the current timecode.</span><span lang="ua">Вмикає або вимикає цей конкретний кліп для тригерингу тайм-кодом. Коли знято, кліп пропускається навіть якщо його Trigger Time відповідає поточному тайм-коду.</span></td></tr>
+      <tr><td><span lang="en">Clip name</span><span lang="ua">Назва кліпу</span></td><td><span lang="en">The clip slot name as reported by Resolume. Displayed read-only. Updated when <b>Get Clips</b> is used.</span><span lang="ua">Назва слоту кліпу, надана Resolume. Лише для читання. Оновлюється при використанні <b>Get Clips</b>.</span></td></tr>
+      <tr><td><span lang="en">Countdown</span><span lang="ua">Зворотний відлік</span></td><td><span lang="en">Shows the time remaining until this clip's Trigger Time. Counts down from a positive value to zero as the timecode approaches. Displayed as <code>−HH:MM:SS:FF</code>. Grey when far away, becomes more visible as it approaches.</span><span lang="ua">Показує час, що залишився до Trigger Time цього кліпу. Відраховує від позитивного значення до нуля по мірі наближення тайм-коду. Відображається як <code>−HH:MM:SS:FF</code>. Сірий коли далеко, стає виразнішим по мірі наближення.</span></td></tr>
+      <tr><td><span lang="en">Trigger Time</span><span lang="ua">Час тригера</span></td><td><span lang="en">The timecode position at which this clip fires. Editable — click to edit inline. Format: <code>HH:MM:SS:FF</code>. The Global Offset is subtracted from this value before comparing. Leave empty or set to <code>00:00:00:00</code> to disable triggering for this clip.</span><span lang="ua">Позиція тайм-коду, при якій запускається цей кліп. Редагований — клацніть для редагування. Формат: <code>HH:MM:SS:FF</code>. Глобальне зміщення віднімається від цього значення перед порівнянням. Залиште порожнім або <code>00:00:00:00</code> для вимкнення тригера.</span></td></tr>
+      <tr><td><span lang="en">Duration</span><span lang="ua">Тривалість</span></td><td><span lang="en">How long (in timecode) this clip is expected to play. Used by the End Action to determine when to fire the post-clip action. Format: <code>HH:MM:SS:FF</code>. Editable inline.</span><span lang="ua">Очікувана тривалість відтворення кліпу (у тайм-коді). Використовується End Action для визначення часу дії після кліпу. Формат: <code>HH:MM:SS:FF</code>. Редагований.</span></td></tr>
+      <tr><td><span lang="en">End Action</span><span lang="ua">Дія завершення</span></td><td><span lang="en">Action taken when the timecode reaches <code>Trigger Time + Duration</code>. Cycles through three states by clicking:<br>
         <b>Off</b> — no action after the clip finishes.<br>
-        <b>Col</b> — fires the Resolume column number entered in the detail field (column-based triggering).<br>
-        <b>L/C</b> — fires a specific layer/clip combination entered as Layer and Clip numbers.</td></tr>
-      <tr><td>▶ Test button</td><td>Manually sends the OSC trigger for this clip immediately, regardless of current timecode. The row highlights green to confirm the command was sent. Useful for testing the Resolume connection and verifying clip assignments.</td></tr>
+        <b>Col</b> — fires the Resolume column number entered in the detail field.<br>
+        <b>L/C</b> — fires a specific layer/clip combination.</span><span lang="ua">Дія при досягненні тайм-кодом значення <code>Trigger Time + Duration</code>. Перемикає три стани кліком:<br>
+        <b>Off</b> — жодної дії після завершення кліпу.<br>
+        <b>Col</b> — запускає номер стовпця Resolume, введений у полі деталей.<br>
+        <b>L/C</b> — запускає конкретну комбінацію шар/кліп.</span></td></tr>
+      <tr><td>▶ <span lang="en">Test button</span><span lang="ua">Кнопка Test</span></td><td><span lang="en">Manually sends the OSC trigger for this clip immediately, regardless of current timecode. The row highlights green to confirm the command was sent. Useful for testing the Resolume connection and verifying clip assignments.</span><span lang="ua">Вручну надсилає OSC-тригер для цього кліпу негайно, незалежно від поточного тайм-коду. Рядок підсвічується зеленим для підтвердження надсилання команди. Корисно для тестування з'єднання з Resolume.</span></td></tr>
     </table>
 
     <!-- ── CUSTOM TRIGGERS ────────────────────────────────────────────── -->
-    <h2 id="table-custom">Custom Triggers</h2>
-    <p>A special group (Layer 0) that appears above the regular clip layers. Custom Triggers are not tied to any specific Resolume clip slot — each one fires a column or a layer/clip combo at a configured time. Useful for triggering global Resolume events that are not individual clips.</p>
-    <p>Create the first Custom Trigger using the <b>Create Custom Trigger</b> button (appears in the toolbar when no custom group exists). Additional triggers are added with the <code>+</code> button inside the group.</p>
+    <h2 id="table-custom"><span lang="en">Custom Triggers</span><span lang="ua">Власні тригери</span></h2>
+    <p lang="en">A special group (Layer 0) that appears above the regular clip layers. Custom Triggers are not tied to any specific Resolume clip slot — each one fires a column or a layer/clip combo at a configured time. Useful for triggering global Resolume events that are not individual clips.</p>
+    <p lang="ua">Спеціальна група (Шар 0), що відображається над звичайними шарами кліпів. Власні тригери не прив'язані до жодного конкретного слоту кліпу Resolume — кожен запускає стовпець або комбінацію шар/кліп у налаштований час. Корисно для запуску глобальних подій Resolume, що не є окремими кліпами.</p>
+    <p lang="en">Create the first Custom Trigger using the <b>Create Custom Trigger</b> button (appears in the toolbar when no custom group exists). Additional triggers are added with the <code>+</code> button inside the group.</p>
+    <p lang="ua">Створіть перший Власний тригер за допомогою кнопки <b>Create Custom Trigger</b> (з'являється на панелі інструментів, коли немає власної групи). Додаткові тригери додаються кнопкою <code>+</code> всередині групи.</p>
 
-    <h3>Custom Trigger Group Header</h3>
+    <h3><span lang="en">Custom Trigger Group Header</span><span lang="ua">Заголовок групи власних тригерів</span></h3>
     <table class="fields">
-      <tr><th>Element</th><th>Description</th></tr>
-      <tr><td>▶ / ▼ arrow</td><td>Collapses or expands the custom trigger rows.</td></tr>
-      <tr><td>Group checkbox</td><td>Enables or disables the entire custom trigger group.</td></tr>
-      <tr><td>Group name</td><td>Editable label for the group. Default is <b>Custom Trigger</b>. Click to edit inline, press Enter or click away to confirm.</td></tr>
-      <tr><td><code>+</code> button</td><td>Adds a new custom trigger row to the group.</td></tr>
+      <tr><th><span lang="en">Element</span><span lang="ua">Елемент</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td>▶ / ▼ <span lang="en">arrow</span><span lang="ua">стрілка</span></td><td><span lang="en">Collapses or expands the custom trigger rows.</span><span lang="ua">Згортає або розгортає рядки власних тригерів.</span></td></tr>
+      <tr><td><span lang="en">Group checkbox</span><span lang="ua">Прапорець групи</span></td><td><span lang="en">Enables or disables the entire custom trigger group.</span><span lang="ua">Вмикає або вимикає всю групу власних тригерів.</span></td></tr>
+      <tr><td><span lang="en">Group name</span><span lang="ua">Назва групи</span></td><td><span lang="en">Editable label for the group. Default is <b>Custom Trigger</b>. Click to edit inline, press Enter or click away to confirm.</span><span lang="ua">Редагована мітка групи. За замовчуванням <b>Custom Trigger</b>. Клацніть для редагування, натисніть Enter або клацніть в іншому місці для підтвердження.</span></td></tr>
+      <tr><td><code>+</code> <span lang="en">button</span><span lang="ua">кнопка</span></td><td><span lang="en">Adds a new custom trigger row to the group.</span><span lang="ua">Додає новий рядок власного тригера до групи.</span></td></tr>
     </table>
 
-    <h3>Custom Trigger Rows</h3>
+    <h3><span lang="en">Custom Trigger Rows</span><span lang="ua">Рядки власних тригерів</span></h3>
     <table class="fields">
-      <tr><th>Column</th><th>Description</th></tr>
-      <tr><td>Checkbox</td><td>Enables/disables this custom trigger individually.</td></tr>
-      <tr><td>Name</td><td>Editable label for this trigger (default <b>Custom 1</b>, <b>Custom 2</b>, …). Click to edit inline.</td></tr>
-      <tr><td>Countdown</td><td>Time remaining until the trigger fires, same as regular clip rows.</td></tr>
-      <tr><td>Trigger Time</td><td>Timecode position at which this custom trigger fires. Editable inline. Format: <code>HH:MM:SS:FF</code>.</td></tr>
-      <tr><td>Type / Source</td><td>Defines what OSC command is sent when the trigger fires.<br>
+      <tr><th><span lang="en">Column</span><span lang="ua">Стовпець</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Checkbox</span><span lang="ua">Прапорець</span></td><td><span lang="en">Enables/disables this custom trigger individually.</span><span lang="ua">Вмикає/вимикає цей власний тригер окремо.</span></td></tr>
+      <tr><td><span lang="en">Name</span><span lang="ua">Назва</span></td><td><span lang="en">Editable label for this trigger (default <b>Custom 1</b>, <b>Custom 2</b>, …). Click to edit inline.</span><span lang="ua">Редагована мітка для цього тригера (за замовчуванням <b>Custom 1</b>, <b>Custom 2</b>, …). Клацніть для редагування.</span></td></tr>
+      <tr><td><span lang="en">Countdown</span><span lang="ua">Зворотний відлік</span></td><td><span lang="en">Time remaining until the trigger fires, same as regular clip rows.</span><span lang="ua">Час до спрацювання тригера, як і для звичайних рядків кліпів.</span></td></tr>
+      <tr><td><span lang="en">Trigger Time</span><span lang="ua">Час тригера</span></td><td><span lang="en">Timecode position at which this custom trigger fires. Editable inline. Format: <code>HH:MM:SS:FF</code>.</span><span lang="ua">Позиція тайм-коду для спрацювання тригера. Редагований. Формат: <code>HH:MM:SS:FF</code>.</span></td></tr>
+      <tr><td><span lang="en">Type / Source</span><span lang="ua">Тип / Джерело</span></td><td><span lang="en">Defines what OSC command is sent when the trigger fires.<br>
         <b>Col</b> — fires a Resolume column. Enter the column number in the adjacent field.<br>
-        <b>L/C</b> — fires a specific clip in a specific layer. Enter Layer and Clip numbers in the adjacent fields.<br>
-        Click the button to toggle between Col and L/C modes.</td></tr>
-      <tr><td>End Action</td><td>Post-duration action (Off / Col / L/C), same as regular clip rows.</td></tr>
-      <tr><td>▶ Test button</td><td>Fires the custom trigger immediately. Row highlights green on send.</td></tr>
-      <tr><td><code>−</code> Delete button</td><td>Removes this custom trigger row. If this is the last row, the entire Custom Trigger group is removed.</td></tr>
+        <b>L/C</b> — fires a specific clip in a specific layer. Enter Layer and Clip numbers.<br>
+        Click the button to toggle between Col and L/C modes.</span><span lang="ua">Визначає, яка OSC-команда надсилається при спрацюванні тригера.<br>
+        <b>Col</b> — запускає стовпець Resolume. Введіть номер стовпця в сусідньому полі.<br>
+        <b>L/C</b> — запускає конкретний кліп у конкретному шарі. Введіть номери шару та кліпу.<br>
+        Клацніть кнопку для перемикання між режимами Col та L/C.</span></td></tr>
+      <tr><td><span lang="en">End Action</span><span lang="ua">Дія завершення</span></td><td><span lang="en">Post-duration action (Off / Col / L/C), same as regular clip rows.</span><span lang="ua">Дія після тривалості (Off / Col / L/C), як і для звичайних рядків кліпів.</span></td></tr>
+      <tr><td>▶ <span lang="en">Test button</span><span lang="ua">Кнопка Test</span></td><td><span lang="en">Fires the custom trigger immediately. Row highlights green on send.</span><span lang="ua">Запускає власний тригер негайно. Рядок підсвічується зеленим при надсиланні.</span></td></tr>
+      <tr><td><code>−</code> <span lang="en">Delete button</span><span lang="ua">Кнопка видалення</span></td><td><span lang="en">Removes this custom trigger row. If this is the last row, the entire Custom Trigger group is removed.</span><span lang="ua">Видаляє цей рядок власного тригера. Якщо це останній рядок, вся група Custom Trigger видаляється.</span></td></tr>
     </table>
 
     <!-- ── BUTTONS ────────────────────────────────────────────────────── -->
-    <h2 id="buttons">Toolbar Buttons</h2>
+    <h2 id="buttons"><span lang="en">Toolbar Buttons</span><span lang="ua">Кнопки панелі інструментів</span></h2>
     <table class="fields">
-      <tr><th>Button</th><th>Description</th></tr>
-      <tr><td>Get Clips</td><td>Sends an OSC request to Resolume to retrieve the current composition structure (layers and clip names). The table is populated with the response. Requires a working connection to Resolume (correct Output IP, Output Port, and Input Port). Existing trigger times and durations for matching layer/clip slots are preserved. If no response arrives within 3 seconds, a warning dialog is shown.</td></tr>
-      <tr><td>Create Custom Trigger</td><td>Creates the Custom Trigger group and adds the first entry. Visible only when no custom triggers exist yet. After the group is created, use the <code>+</code> button inside the group to add more.</td></tr>
-      <tr><td>Settings</td><td>Opens the <a href="#settings">Settings menu</a> for saving, loading, and managing configuration files.</td></tr>
-      <tr><td>Quit</td><td>Closes the application. If <b>Close to tray</b> is enabled, use the tray icon's Quit option to actually exit.</td></tr>
+      <tr><th><span lang="en">Button</span><span lang="ua">Кнопка</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td>Get Clips</td><td><span lang="en">Sends an OSC request to Resolume to retrieve the current composition structure (layers and clip names). The table is populated with the response. Requires a working connection to Resolume (correct Output IP, Output Port, and Input Port). Existing trigger times and durations for matching layer/clip slots are preserved. If no response arrives within 3 seconds, a warning dialog is shown.</span><span lang="ua">Надсилає OSC-запит до Resolume для отримання поточної структури композиції (шари та назви кліпів). Таблиця заповнюється відповіддю. Потребує робочого з'єднання з Resolume (правильний Output IP, Output Port та Input Port). Існуючі часи тригера та тривалості для відповідних слотів зберігаються. Якщо відповідь не надійшла протягом 3 секунд, показується попереджуюче вікно.</span></td></tr>
+      <tr><td>Create Custom Trigger</td><td><span lang="en">Creates the Custom Trigger group and adds the first entry. Visible only when no custom triggers exist yet. After the group is created, use the <code>+</code> button inside the group to add more.</span><span lang="ua">Створює групу Custom Trigger та додає перший запис. Видно лише якщо власних тригерів ще немає. Після створення групи використовуйте кнопку <code>+</code> всередині для додавання нових.</span></td></tr>
+      <tr><td>Settings</td><td><span lang="en">Opens the <a href="#settings">Settings menu</a> for saving, loading, and managing configuration files.</span><span lang="ua">Відкриває <a href="#settings">меню налаштувань</a> для збереження, завантаження та управління файлами конфігурації.</span></td></tr>
+      <tr><td>Quit</td><td><span lang="en">Closes the application. If <b>Close to tray</b> is enabled, use the tray icon's Quit option to actually exit.</span><span lang="ua">Закриває застосунок. Якщо увімкнено <b>Close to tray</b>, для справжнього виходу використовуйте опцію Quit в іконці трею.</span></td></tr>
     </table>
 
     <!-- ── SETTINGS ───────────────────────────────────────────────────── -->
-    <h2 id="settings">Settings Menu</h2>
-    <p>Opened by clicking <b>Settings</b>. All configuration is stored in <code>.etr</code> files (JSON format). Three save/load scopes are available:</p>
+    <h2 id="settings"><span lang="en">Settings Menu</span><span lang="ua">Меню налаштувань</span></h2>
+    <p lang="en">Opened by clicking <b>Settings</b>. All configuration is stored in <code>.etr</code> files (JSON format). Three save/load scopes are available:</p>
+    <p lang="ua">Відкривається натисканням <b>Settings</b>. Вся конфігурація зберігається у файлах <code>.etr</code> (формат JSON). Доступні три рівні збереження/завантаження:</p>
     <table class="fields">
-      <tr><th>Item</th><th>Description</th></tr>
-      <tr><td>Save settings…</td><td>Saves only the Timecode Input and Resolume connection settings (no clip data).</td></tr>
-      <tr><td>Save clips…</td><td>Saves only the clip table (trigger times, durations, end actions) without the input/connection settings.</td></tr>
-      <tr><td>Save all…</td><td>Saves everything: input settings, Resolume settings, clip table, and custom triggers.</td></tr>
-      <tr><td>Load settings…</td><td>Loads and applies only the settings portion of an <code>.etr</code> file. Clip data in the file is ignored.</td></tr>
-      <tr><td>Load clips…</td><td>Loads and applies only the clip table from an <code>.etr</code> file. Input/connection settings are not changed.</td></tr>
-      <tr><td>Load all…</td><td>Loads and applies everything from the file.</td></tr>
-      <tr><td>Load on startup</td><td>Toggle (checkbox). When enabled, the last saved/loaded <code>.etr</code> file is automatically loaded at startup. The setting is persisted to an internal preferences file.</td></tr>
-      <tr><td>Close to tray</td><td>Toggle (checkbox). When enabled, closing the window minimises to the system tray instead of quitting.</td></tr>
-      <tr><td>Clear custom triggers</td><td>Removes all custom trigger rows and the custom trigger group. Enabled only when a custom trigger group exists.</td></tr>
-      <tr><td>Clear clip triggers</td><td>Removes all regular clip rows from the table (does not affect custom triggers or input settings). Use this before doing a fresh <b>Get Clips</b> if the Resolume composition has changed significantly.</td></tr>
+      <tr><th><span lang="en">Item</span><span lang="ua">Пункт</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Save settings…</span><span lang="ua">Зберегти налаштування…</span></td><td><span lang="en">Saves only the Timecode Input and Resolume connection settings (no clip data).</span><span lang="ua">Зберігає лише налаштування Timecode Input та з'єднання Resolume (без даних кліпів).</span></td></tr>
+      <tr><td><span lang="en">Save clips…</span><span lang="ua">Зберегти кліпи…</span></td><td><span lang="en">Saves only the clip table (trigger times, durations, end actions) without the input/connection settings.</span><span lang="ua">Зберігає лише таблицю кліпів (часи тригерів, тривалості, дії завершення) без налаштувань входу/з'єднання.</span></td></tr>
+      <tr><td><span lang="en">Save all…</span><span lang="ua">Зберегти все…</span></td><td><span lang="en">Saves everything: input settings, Resolume settings, clip table, and custom triggers.</span><span lang="ua">Зберігає все: налаштування входу, налаштування Resolume, таблицю кліпів та власні тригери.</span></td></tr>
+      <tr><td><span lang="en">Load settings…</span><span lang="ua">Завантажити налаштування…</span></td><td><span lang="en">Loads and applies only the settings portion of an <code>.etr</code> file. Clip data in the file is ignored.</span><span lang="ua">Завантажує та застосовує лише секцію налаштувань файлу <code>.etr</code>. Дані кліпів у файлі ігноруються.</span></td></tr>
+      <tr><td><span lang="en">Load clips…</span><span lang="ua">Завантажити кліпи…</span></td><td><span lang="en">Loads and applies only the clip table from an <code>.etr</code> file. Input/connection settings are not changed.</span><span lang="ua">Завантажує та застосовує лише таблицю кліпів з файлу <code>.etr</code>. Налаштування входу/з'єднання не змінюються.</span></td></tr>
+      <tr><td><span lang="en">Load all…</span><span lang="ua">Завантажити все…</span></td><td><span lang="en">Loads and applies everything from the file.</span><span lang="ua">Завантажує та застосовує все з файлу.</span></td></tr>
+      <tr><td><span lang="en">Load on startup</span><span lang="ua">Завантажувати при запуску</span></td><td><span lang="en">Toggle (checkbox). When enabled, the last saved/loaded <code>.etr</code> file is automatically loaded at startup. The setting is persisted to an internal preferences file.</span><span lang="ua">Перемикач (прапорець). Коли увімкнено, останній збережений/завантажений файл <code>.etr</code> автоматично завантажується при запуску. Налаштування зберігається у внутрішньому файлі налаштувань.</span></td></tr>
+      <tr><td><span lang="en">Close to tray</span><span lang="ua">Згортати в трей</span></td><td><span lang="en">Toggle (checkbox). When enabled, closing the window minimises to the system tray instead of quitting.</span><span lang="ua">Перемикач (прапорець). Коли увімкнено, закриття вікна мінімізує в системний трей замість виходу.</span></td></tr>
+      <tr><td><span lang="en">Clear custom triggers</span><span lang="ua">Очистити власні тригери</span></td><td><span lang="en">Removes all custom trigger rows and the custom trigger group. Enabled only when a custom trigger group exists.</span><span lang="ua">Видаляє всі рядки власних тригерів та групу власних тригерів. Активний лише якщо існує група власних тригерів.</span></td></tr>
+      <tr><td><span lang="en">Clear clip triggers</span><span lang="ua">Очистити кліп-тригери</span></td><td><span lang="en">Removes all regular clip rows from the table (does not affect custom triggers or input settings). Use this before doing a fresh <b>Get Clips</b> if the Resolume composition has changed significantly.</span><span lang="ua">Видаляє всі звичайні рядки кліпів з таблиці (не впливає на власні тригери або налаштування входу). Використовуйте перед новим <b>Get Clips</b>, якщо композиція Resolume суттєво змінилася.</span></td></tr>
+      <tr><td><span lang="en">Reset settings</span><span lang="ua">Скинути налаштування</span></td><td><span lang="en">Resets all settings, connection, and UI state to factory defaults. Does not affect saved files.</span><span lang="ua">Скидає всі налаштування, з'єднання та стан інтерфейсу до заводських значень. Не впливає на збережені файли.</span></td></tr>
     </table>
 
     <!-- ── FILE FORMAT ────────────────────────────────────────────────── -->
-    <h2 id="file-format">File Format (.etr)</h2>
-    <p>Easy Trigger uses JSON files with the <code>.etr</code> extension. The file contains a <code>mode</code> field (<code>"settings"</code>, <code>"clips"</code>, or <code>"all"</code>) that tells the loader which sections to restore. Files created with <b>Save settings</b> can be loaded with <b>Load all</b> — the missing clip section is simply skipped.</p>
-    <p>Files are saved to the user's Documents folder by default but can be placed anywhere.</p>
+    <h2 id="file-format"><span lang="en">File Format (.etr)</span><span lang="ua">Формат файлу (.etr)</span></h2>
+    <p lang="en">Easy Trigger uses JSON files with the <code>.etr</code> extension. The file contains a <code>mode</code> field (<code>"settings"</code>, <code>"clips"</code>, or <code>"all"</code>) that tells the loader which sections to restore. Files created with <b>Save settings</b> can be loaded with <b>Load all</b> — the missing clip section is simply skipped.</p>
+    <p lang="ua">Easy Trigger використовує файли JSON з розширенням <code>.etr</code>. Файл містить поле <code>mode</code> (<code>"settings"</code>, <code>"clips"</code> або <code>"all"</code>), що вказує завантажувачу, які секції відновлювати. Файли, створені за допомогою <b>Save settings</b>, можна завантажити за допомогою <b>Load all</b> — відсутня секція кліпів просто пропускається.</p>
+    <p lang="en">Files are saved to the user's Documents folder by default but can be placed anywhere.</p>
+    <p lang="ua">Файли за замовчуванням зберігаються в папці Документи користувача, але можуть бути розміщені будь-де.</p>
 
     <!-- ── OSC ADDRESSES ──────────────────────────────────────────────── -->
-    <h2 id="osc-addresses">OSC Addresses Used</h2>
-    <p>Easy Trigger sends the following OSC messages to Resolume when triggering clips or columns:</p>
+    <h2 id="osc-addresses"><span lang="en">OSC Addresses Used</span><span lang="ua">OSC-адреси, що використовуються</span></h2>
+    <p lang="en">Easy Trigger sends the following OSC messages to Resolume when triggering clips or columns:</p>
+    <p lang="ua">Easy Trigger надсилає наступні OSC-повідомлення до Resolume при тригерингу кліпів або стовпців:</p>
     <table class="fields">
-      <tr><th>Action</th><th>OSC Address</th></tr>
-      <tr><td>Trigger clip</td><td><code>/composition/layers/[L]/clips/[C]/connect</code></td></tr>
-      <tr><td>Trigger column</td><td><code>/composition/columns/[col]/connect</code></td></tr>
-      <tr><td>Set clip offset</td><td><code>/composition/layers/[L]/clips/[C]/transport/position/behaviour/offset</code></td></tr>
-      <tr><td>Set clip duration</td><td><code>/composition/layers/[L]/clips/[C]/transport/position/behaviour/duration</code></td></tr>
+      <tr><th><span lang="en">Action</span><span lang="ua">Дія</span></th><th>OSC Address</th></tr>
+      <tr><td><span lang="en">Trigger clip</span><span lang="ua">Запуск кліпу</span></td><td><code>/composition/layers/[L]/clips/[C]/connect</code></td></tr>
+      <tr><td><span lang="en">Trigger column</span><span lang="ua">Запуск стовпця</span></td><td><code>/composition/columns/[col]/connect</code></td></tr>
+      <tr><td><span lang="en">Set clip offset</span><span lang="ua">Встановити зміщення кліпу</span></td><td><code>/composition/layers/[L]/clips/[C]/transport/position/behaviour/offset</code></td></tr>
+      <tr><td><span lang="en">Set clip duration</span><span lang="ua">Встановити тривалість кліпу</span></td><td><code>/composition/layers/[L]/clips/[C]/transport/position/behaviour/duration</code></td></tr>
     </table>
-    <p>Where <code>[L]</code> is the 1-based layer index, <code>[C]</code> is the 1-based clip index, and <code>[col]</code> is the 1-based column index.</p>
+    <p lang="en">Where <code>[L]</code> is the 1-based layer index, <code>[C]</code> is the 1-based clip index, and <code>[col]</code> is the 1-based column index.</p>
+    <p lang="ua">Де <code>[L]</code> — індекс шару (від 1), <code>[C]</code> — індекс кліпу (від 1), а <code>[col]</code> — індекс стовпця (від 1).</p>
 
     <!-- ── TRAY ───────────────────────────────────────────────────────── -->
-    <h2 id="tray">System Tray</h2>
-    <p>When <b>Close to tray</b> is enabled in Settings, closing the main window hides it to the tray.</p>
+    <h2 id="tray"><span lang="en">System Tray</span><span lang="ua">Системний трей</span></h2>
+    <p lang="en">When <b>Close to tray</b> is enabled in Settings, closing the main window hides it to the tray.</p>
+    <p lang="ua">Коли в налаштуваннях увімкнено <b>Close to tray</b>, закриття головного вікна ховає його в трей.</p>
     <table class="fields">
-      <tr><th>Action</th><th>Description</th></tr>
-      <tr><td>Left-click tray icon</td><td>Restores the main window.</td></tr>
-      <tr><td>Right-click → Show</td><td>Brings the window to the foreground.</td></tr>
-      <tr><td>Right-click → Quit</td><td>Terminates the application.</td></tr>
+      <tr><th><span lang="en">Action</span><span lang="ua">Дія</span></th><th><span lang="en">Description</span><span lang="ua">Опис</span></th></tr>
+      <tr><td><span lang="en">Left-click tray icon</span><span lang="ua">Ліве клацання на іконці трею</span></td><td><span lang="en">Restores the main window.</span><span lang="ua">Відновлює головне вікно.</span></td></tr>
+      <tr><td><span lang="en">Right-click → Show</span><span lang="ua">Правий клік → Show</span></td><td><span lang="en">Brings the window to the foreground.</span><span lang="ua">Виводить вікно на передній план.</span></td></tr>
+      <tr><td><span lang="en">Right-click → Quit</span><span lang="ua">Правий клік → Quit</span></td><td><span lang="en">Terminates the application.</span><span lang="ua">Завершує роботу застосунку.</span></td></tr>
     </table>
 
     <!-- ── TROUBLESHOOTING ────────────────────────────────────────────── -->
-    <h2 id="troubleshooting">Troubleshooting</h2>
+    <h2 id="troubleshooting"><span lang="en">Troubleshooting</span><span lang="ua">Усунення несправностей</span></h2>
     <table class="fields">
-      <tr><th>Problem</th><th>What to check</th></tr>
-      <tr><td>Status stays STOPPED</td><td>Check the source type and all source fields (device, port, adapter). For LTC, verify the Level meter is not empty. For MTC, confirm the correct MIDI port is selected.</td></tr>
-      <tr><td>Get Clips returns nothing</td><td>Verify Output IP and Output Port match Resolume's OSC server settings. Verify Input Port matches Resolume's OSC client settings. Confirm Resolume is running with a composition loaded.</td></tr>
-      <tr><td>Clips don't trigger on time</td><td>Check that layer and clip checkboxes are enabled. Verify Trigger Time format is <code>HH:MM:SS:FF</code>. Use Global Offset to compensate for Resolume latency. Test manually with the ▶ button to verify the connection works.</td></tr>
-      <tr><td>Row stays red / not green after trigger</td><td>The OSC feedback from Resolume is not arriving. Check Input Port is correct in both Easy Trigger and Resolume's OSC client config. Check firewall rules on the Input Port.</td></tr>
-      <tr><td>"OSC listener is not running"</td><td>The Input Port is in use by another application, or the listener failed to start after loading a settings file. Change the port or restart the application.</td></tr>
-      <tr><td>Custom trigger fires wrong clip</td><td>Confirm the Col or L/C numbers entered in the Type/Source field match the actual column or layer/clip index in Resolume (1-based).</td></tr>
-      <tr><td>LTC decode unreliable</td><td>On Windows, switch the Driver to ASIO or WASAPI Exclusive for lower jitter. Adjust Input Gain so the Level meter shows a healthy signal.</td></tr>
-      <tr><td>LTC Thru produces silence</td><td>Ensure the LTC Input source is selected and running (Level meter should show a signal). The Thru dot and the Out LTC switch must both be ON. Confirm the output device and channel are set correctly.</td></tr>
-      <tr><td>"Could not receive clips from Resolume" dialog</td><td>Resolume did not respond to the Get Clips request within 3 seconds. Check Output IP, Output Port, and that Resolume is running with an open composition. Verify the OSC server is enabled in Resolume Preferences.</td></tr>
+      <tr><th><span lang="en">Problem</span><span lang="ua">Проблема</span></th><th><span lang="en">What to check</span><span lang="ua">Що перевірити</span></th></tr>
+      <tr><td><span lang="en">Status stays STOPPED</span><span lang="ua">Статус залишається STOPPED</span></td><td><span lang="en">Check the source type and all source fields (device, port, adapter). For LTC, verify the Level meter is not empty. For MTC, confirm the correct MIDI port is selected.</span><span lang="ua">Перевірте тип джерела та всі поля джерела (пристрій, порт, адаптер). Для LTC перевірте, що індикатор рівня не порожній. Для MTC переконайтеся, що вибрано правильний MIDI-порт.</span></td></tr>
+      <tr><td><span lang="en">Get Clips returns nothing</span><span lang="ua">Get Clips нічого не повертає</span></td><td><span lang="en">Verify Output IP and Output Port match Resolume's OSC server settings. Verify Input Port matches Resolume's OSC client settings. Confirm Resolume is running with a composition loaded.</span><span lang="ua">Перевірте, що Output IP та Output Port відповідають налаштуванням OSC-сервера Resolume. Перевірте, що Input Port відповідає налаштуванням OSC-клієнта Resolume. Переконайтеся, що Resolume запущено із завантаженою композицією.</span></td></tr>
+      <tr><td><span lang="en">Clips don't trigger on time</span><span lang="ua">Кліпи не спрацьовують вчасно</span></td><td><span lang="en">Check that layer and clip checkboxes are enabled. Verify Trigger Time format is <code>HH:MM:SS:FF</code>. Use Global Offset to compensate for Resolume latency. Test manually with the ▶ button to verify the connection works.</span><span lang="ua">Перевірте, що прапорці шару та кліпу увімкнені. Перевірте формат Trigger Time: <code>HH:MM:SS:FF</code>. Використовуйте Global Offset для компенсації затримки Resolume. Перевірте вручну кнопкою ▶, щоб підтвердити роботу з'єднання.</span></td></tr>
+      <tr><td><span lang="en">Row stays red / not green after trigger</span><span lang="ua">Рядок залишається червоним після тригера</span></td><td><span lang="en">The OSC feedback from Resolume is not arriving. Check Input Port is correct in both Easy Trigger and Resolume's OSC client config. Check firewall rules on the Input Port.</span><span lang="ua">Зворотний зв'язок OSC від Resolume не надходить. Перевірте правильність Input Port як в Easy Trigger, так і в налаштуваннях OSC-клієнта Resolume. Перевірте правила брандмауера для Input Port.</span></td></tr>
+      <tr><td><span lang="en">"OSC listener is not running"</span><span lang="ua">"OSC listener is not running"</span></td><td><span lang="en">The Input Port is in use by another application, or the listener failed to start after loading a settings file. Change the port or restart the application.</span><span lang="ua">Input Port зайнятий іншим застосунком або слухач не запустився після завантаження файлу налаштувань. Змініть порт або перезапустіть застосунок.</span></td></tr>
+      <tr><td><span lang="en">Custom trigger fires wrong clip</span><span lang="ua">Власний тригер запускає неправильний кліп</span></td><td><span lang="en">Confirm the Col or L/C numbers entered in the Type/Source field match the actual column or layer/clip index in Resolume (1-based).</span><span lang="ua">Переконайтеся, що номери Col або L/C у полі Type/Source відповідають фактичному індексу стовпця або шару/кліпу в Resolume (від 1).</span></td></tr>
+      <tr><td><span lang="en">LTC decode unreliable</span><span lang="ua">Декодування LTC нестабільне</span></td><td><span lang="en">On Windows, switch the Driver to ASIO or WASAPI Exclusive for lower jitter. Adjust Input Gain so the Level meter shows a healthy signal.</span><span lang="ua">На Windows перемкніть Driver на ASIO або WASAPI Exclusive для меншого джиттера. Відрегулюйте Input Gain, щоб індикатор рівня показував здоровий сигнал.</span></td></tr>
+      <tr><td><span lang="en">LTC Thru produces silence</span><span lang="ua">LTC Thru не передає звук</span></td><td><span lang="en">Ensure the LTC Input source is selected and running (Level meter should show a signal). The Thru dot and the Out LTC switch must both be ON. Confirm the output device and channel are set correctly.</span><span lang="ua">Переконайтеся, що джерело LTC Input вибрано та запущено (індикатор рівня повинен показувати сигнал). Крапка Thru та перемикач Out LTC повинні бути увімкнені. Переконайтеся, що вихідний пристрій та канал налаштовані правильно.</span></td></tr>
+      <tr><td><span lang="en">"Could not receive clips from Resolume" dialog</span><span lang="ua">Діалог "Could not receive clips from Resolume"</span></td><td><span lang="en">Resolume did not respond to the Get Clips request within 3 seconds. Check Output IP, Output Port, and that Resolume is running with an open composition. Verify the OSC server is enabled in Resolume Preferences.</span><span lang="ua">Resolume не відповів на запит Get Clips протягом 3 секунд. Перевірте Output IP, Output Port та те, що Resolume запущено з відкритою композицією. Перевірте, що OSC-сервер увімкнено в Preferences Resolume.</span></td></tr>
     </table>
 
   </main>
 </div>
+<script>
+function setLang(l){
+  document.documentElement.className='lang-'+l;
+  localStorage.setItem('helpLang',l);
+  document.querySelectorAll('.lang-btn').forEach(function(b){
+    b.classList.toggle('active',b.dataset.lang===l);
+  });
+}
+(function(){ setLang(localStorage.getItem('helpLang')||'en'); })();
+</script>
 </body>
 </html>

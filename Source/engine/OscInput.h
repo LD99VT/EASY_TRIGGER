@@ -8,13 +8,15 @@
 
 namespace bridge::engine
 {
+enum class OscValueType : int { Seconds = 0, Frames = 1, Normalized = 2 };
+
 class OscInput final : private juce::Thread
 {
 public:
     OscInput();
     ~OscInput() override;
 
-    bool start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, juce::String& errorOut);
+    bool start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, OscValueType floatValueType, double floatMaxSeconds, juce::String& errorOut);
     void stop();
 
     bool getIsRunning() const;
@@ -46,6 +48,8 @@ private:
     std::atomic<double> lastPacketTsMs_ { 0.0 };
     std::atomic<double> lastStringTsMs_ { 0.0 };
     std::atomic<FrameRate> fps_ { FrameRate::FPS_25 };
+    std::atomic<int>    floatValueType_  { 0 };
+    std::atomic<double> floatMaxSeconds_ { 3600.0 };
     juce::String addrStr_ { "/frames/str" };
     juce::String addrFloat_ { "/time" };
     juce::String bindIp_ { "0.0.0.0" };

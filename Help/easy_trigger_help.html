@@ -292,7 +292,16 @@
       <tr><td><span lang="en">Port</span><span lang="ua">Порт</span></td><td><span lang="en">UDP port number (default <code>9000</code>). Must match the sender's configured output port.</span><span lang="ua">Номер UDP-порту (за замовчуванням <code>9000</code>). Повинен відповідати вихідному порту відправника.</span></td></tr>
       <tr><td>FPS</td><td><span lang="en">Frame rate used to interpret incoming float time values (24 / 25 / 29.97 / 30). Match your project FPS.</span><span lang="ua">Частота кадрів для інтерпретації вхідних значень часу float (24 / 25 / 29.97 / 30). Відповідає частоті кадрів проекту.</span></td></tr>
       <tr><td><span lang="en">String address</span><span lang="ua">Адреса рядка</span></td><td><span lang="en">OSC path for string timecode messages (e.g. <code>/frames/str</code>). Expects <code>HH:MM:SS:FF</code> or <code>HH:MM:SS.FF</code>.</span><span lang="ua">OSC-шлях для повідомлень тайм-коду у форматі рядка (наприклад, <code>/frames/str</code>). Очікує <code>HH:MM:SS:FF</code> або <code>HH:MM:SS.FF</code>.</span></td></tr>
-      <tr><td><span lang="en">Float address</span><span lang="ua">Адреса числа</span></td><td><span lang="en">OSC path for float position messages (e.g. <code>/time</code>). Value is interpreted as seconds × FPS.</span><span lang="ua">OSC-шлях для числових позиційних повідомлень (наприклад, <code>/time</code>). Значення інтерпретується як секунди × FPS.</span></td></tr>
+      <tr><td><span lang="en">Float address</span><span lang="ua">Адреса числа</span></td><td><span lang="en">OSC path for float position messages (e.g. <code>/time</code>). Value is interpreted according to the <b>Float type</b> setting below.</span><span lang="ua">OSC-шлях для числових позиційних повідомлень (наприклад, <code>/time</code>). Значення інтерпретується згідно з налаштуванням <b>Float type</b> нижче.</span></td></tr>
+      <tr><td><span lang="en">Float type</span><span lang="ua">Тип числа</span></td><td>
+        <span lang="en"><b>Seconds</b> — value is time in seconds (default; Reaper, QLab, TouchOSC, most DAWs).<br>
+        <b>Frames</b> — value is a frame count; divided by FPS to get seconds.<br>
+        <b>Normalized</b> — value is 0.0–1.0 (clip progress); multiplied by <b>Float max</b> to get seconds (Resolume Arena and similar).</span>
+        <span lang="ua"><b>Seconds</b> — значення є часом у секундах (за замовчуванням; Reaper, QLab, TouchOSC, більшість DAW).<br>
+        <b>Frames</b> — значення є номером кадру; ділиться на FPS для отримання секунд.<br>
+        <b>Normalized</b> — значення від 0.0 до 1.0 (прогрес кліпу); множиться на <b>Float max</b> (Resolume Arena та схожі).</span>
+      </td></tr>
+      <tr><td><span lang="en">Float max (s)</span><span lang="ua">Float max (с)</span></td><td><span lang="en">Visible only when <b>Float type</b> is <b>Normalized</b>. Enter the clip duration in seconds (e.g. <code>8</code> for an 8-second clip). Resolume's 0.0–1.0 position is multiplied by this value.</span><span lang="ua">Відображається лише при <b>Float type</b> = <b>Normalized</b>. Введіть тривалість кліпу в секундах (наприклад, <code>8</code> для 8-секундного кліпу). Позиція 0.0–1.0 з Resolume множиться на це значення.</span></td></tr>
     </table>
 
     <!-- ── LTC OUTPUT ────────────────────────────────────────────────── -->

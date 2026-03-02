@@ -601,8 +601,10 @@ private:
     juce::Label oscIpLbl_ { {}, "OSC Listen IP:" };
     juce::Label oscPortLbl_ { {}, "OSC Port:" };
     juce::Label oscFpsLbl_ { {}, "OSC FPS:" };
-    juce::Label oscStrLbl_ { {}, "OSC str cmd:" };
-    juce::Label oscFloatLbl_ { {}, "OSC float cmd:" };
+    juce::Label oscStrLbl_       { {}, "OSC str cmd:" };
+    juce::Label oscFloatLbl_     { {}, "OSC float cmd:" };
+    juce::Label oscFloatTypeLbl_ { {}, "Float type:" };
+    juce::Label oscFloatMaxLbl_  { {}, "Float max (s):" };
     juce::Label outDriverLbl_ { {}, "Driver:" };
     juce::Label outDeviceLbl_ { {}, "Device (out):" };
     juce::Label outChannelLbl_ { {}, "Channel:" };
@@ -636,6 +638,8 @@ private:
     juce::ComboBox oscFpsCombo_;
     juce::TextEditor oscAddrStrEditor_;
     juce::TextEditor oscAddrFloatEditor_;
+    juce::ComboBox   oscFloatTypeCombo_;
+    juce::TextEditor oscFloatMaxEditor_;
     juce::ComboBox ltcOutDeviceCombo_;
     juce::ComboBox ltcOutChannelCombo_;
     juce::ComboBox ltcOutSampleRateCombo_;

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # ── Version ────────────────────────────────────────────────────────────────────
 # This is the SINGLE place to update the version.
 # All source files receive it via the auto-generated Version.h.
-project(EasyTrigger_JUCE VERSION 2.5.8 LANGUAGES CXX)
+project(EasyTrigger_JUCE VERSION 2.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

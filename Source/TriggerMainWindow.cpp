@@ -1025,7 +1025,7 @@ TriggerContentComponent::TriggerContentComponent()
     sourceHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 6, 0, 0));
     juce::Label* sourceRowLabels[] = {
         &inDriverLbl_, &inDeviceLbl_, &inChannelLbl_, &inRateLbl_, &inLevelLbl_, &inGainLbl_,
-        &mtcInLbl_, &artInLbl_, &artInListenIpLbl_, &oscAdapterLbl_, &oscIpLbl_, &oscPortLbl_, &oscFpsLbl_, &oscStrLbl_, &oscFloatLbl_,
+        &mtcInLbl_, &artInLbl_, &artInListenIpLbl_, &oscAdapterLbl_, &oscIpLbl_, &oscPortLbl_, &oscFpsLbl_, &oscStrLbl_, &oscFloatLbl_, &oscFloatTypeLbl_, &oscFloatMaxLbl_,
         &outDriverLbl_, &outDeviceLbl_, &outChannelLbl_, &outRateLbl_, &outOffsetLbl_, &outLevelLbl_
     };
     for (auto* l : sourceRowLabels)
@@ -1064,10 +1064,18 @@ TriggerContentComponent::TriggerContentComponent()
     oscPortEditor_.setInputRestrictions (5, "0123456789");
     oscAddrStrEditor_.setText ("/frames/str");
     oscAddrFloatEditor_.setText ("/time");
+    oscFloatTypeCombo_.addItem ("Seconds",    1);
+    oscFloatTypeCombo_.addItem ("Frames",     2);
+    oscFloatTypeCombo_.addItem ("Normalized", 3);
+    oscFloatTypeCombo_.setSelectedId (1, juce::dontSendNotification);
+    oscFloatMaxEditor_.setText ("3600");
+    oscFloatMaxEditor_.setInputRestrictions (10, "0123456789.");
     styleEditor (oscIpEditor_);
     styleEditor (oscPortEditor_);
     styleEditor (oscAddrStrEditor_);
     styleEditor (oscAddrFloatEditor_);
+    styleCombo  (oscFloatTypeCombo_);
+    styleEditor (oscFloatMaxEditor_);
     styleEditor (artnetListenIpEditor_);
     artnetListenIpEditor_.setText ("0.0.0.0");
 
@@ -1119,6 +1127,8 @@ TriggerContentComponent::TriggerContentComponent()
         c->onChange = [this] { onOutputSettingsChanged(); };
     }
     artnetListenIpEditor_.onTextChange = [this] { onInputSettingsChanged(); };
+    oscFloatTypeCombo_.onChange = [this] { resized(); onInputSettingsChanged(); };
+    oscFloatMaxEditor_.onTextChange = [this] { onInputSettingsChanged(); };
 
     ltcInDriverCombo_.onChange = [this]
     {
@@ -1152,6 +1162,8 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (oscPortEditor_);
     leftViewportContent_.addAndMakeVisible (oscAddrStrEditor_);
     leftViewportContent_.addAndMakeVisible (oscAddrFloatEditor_);
+    leftViewportContent_.addAndMakeVisible (oscFloatTypeCombo_);
+    leftViewportContent_.addAndMakeVisible (oscFloatMaxEditor_);
     leftViewportContent_.addAndMakeVisible (artnetListenIpEditor_);
 
     resolumeSendIp_.setText ("127.0.0.1");
@@ -1463,6 +1475,12 @@ void TriggerContentComponent::resized()
     };
     auto layoutParam = [&] (juce::Label& lbl, juce::Component& c, bool wanted = true, int h = 40)
     {
+        if (! wanted)
+        {
+            lbl.setVisible (false);
+            c.setVisible (false);
+            return;
+        }
         auto r = nextRow (h);
         pushRowRect (r, false);
         auto l = r.removeFromLeft (112);
@@ -1526,6 +1544,9 @@ void TriggerContentComponent::resized()
         layoutParam (oscFpsLbl_, oscFpsCombo_);
         layoutParam (oscStrLbl_, oscAddrStrEditor_);
         layoutParam (oscFloatLbl_, oscAddrFloatEditor_);
+        layoutParam (oscFloatTypeLbl_, oscFloatTypeCombo_);
+        const bool showMax = oscFloatTypeCombo_.getSelectedId() == 3;
+        layoutParam (oscFloatMaxLbl_, oscFloatMaxEditor_, showMax);
     }
 
     headerRow (resolumeHeader_, resolumeExpandBtn_);
@@ -1576,7 +1597,7 @@ void TriggerContentComponent::resized()
     {
         juce::Component* comps[] = {
             &ltcInDriverCombo_, &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &ltcInLevelBar_, &ltcInGainSlider_,
-            &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_,
+            &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_, &oscFloatTypeCombo_, &oscFloatMaxEditor_,
             &ltcOutDriverCombo_, &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_, &ltcOffsetEditor_, &ltcOutLevelSlider_
         };
         for (auto* c : comps)
@@ -1614,6 +1635,10 @@ void TriggerContentComponent::resized()
     oscAddrStrEditor_.setVisible (sourceExpanded_ && src == 4);
     oscFloatLbl_.setVisible (sourceExpanded_ && src == 4);
     oscAddrFloatEditor_.setVisible (sourceExpanded_ && src == 4);
+    oscFloatTypeLbl_.setVisible (sourceExpanded_ && src == 4);
+    oscFloatTypeCombo_.setVisible (sourceExpanded_ && src == 4);
+    oscFloatMaxLbl_.setVisible (sourceExpanded_ && src == 4 && oscFloatTypeCombo_.getSelectedId() == 3);
+    oscFloatMaxEditor_.setVisible (sourceExpanded_ && src == 4 && oscFloatTypeCombo_.getSelectedId() == 3);
 
     outDriverLbl_.setVisible (outLtcExpanded_);
     ltcOutDriverCombo_.setVisible (outLtcExpanded_);
@@ -2985,11 +3010,15 @@ void TriggerContentComponent::onInputSettingsChanged()
     if (oscFpsCombo_.getSelectedId() == 4) fps = FrameRate::FPS_30;
     const auto bindIp = (oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim()
                                                                      : parseBindIpFromAdapterLabel (oscAdapterCombo_.getText()));
+    const auto floatVt  = static_cast<bridge::engine::OscValueType> (oscFloatTypeCombo_.getSelectedId() - 1);
+    const double floatMax = juce::jmax (1.0, oscFloatMaxEditor_.getText().getDoubleValue());
     bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()),
                                  bindIp,
                                  fps,
                                  oscAddrStrEditor_.getText(),
                                  oscAddrFloatEditor_.getText(),
+                                 floatVt,
+                                 floatMax,
                                  err);
 
     restartSelectedSource();
@@ -3554,6 +3583,8 @@ void TriggerContentComponent::resetSettings()
     oscPortEditor_.setText         ("9000",      juce::dontSendNotification);
     oscAddrStrEditor_.setText      ("",          juce::dontSendNotification);
     oscAddrFloatEditor_.setText    ("",          juce::dontSendNotification);
+    oscFloatTypeCombo_.setSelectedId (1,         juce::dontSendNotification);
+    oscFloatMaxEditor_.setText     ("3600",      juce::dontSendNotification);
 
     // Resolume
     resolumeSendIp_.setText        ("127.0.0.1", juce::dontSendNotification);
@@ -3779,6 +3810,8 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
         leftObj->setProperty ("osc_fps", oscFpsCombo_.getText());
         leftObj->setProperty ("osc_str", oscAddrStrEditor_.getText());
         leftObj->setProperty ("osc_float", oscAddrFloatEditor_.getText());
+        leftObj->setProperty ("osc_float_type", oscFloatTypeCombo_.getSelectedId());
+        leftObj->setProperty ("osc_float_max", oscFloatMaxEditor_.getText());
         leftObj->setProperty ("ltc_out_driver", ltcOutDriverCombo_.getText());
         leftObj->setProperty ("ltc_out_device", ltcOutDeviceCombo_.getText());
         leftObj->setProperty ("ltc_out_channel", ltcOutChannelCombo_.getText());
@@ -3892,6 +3925,10 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
             setComboText (oscFpsCombo_, leftObj->getProperty ("osc_fps").toString());
             oscAddrStrEditor_.setText (leftObj->getProperty ("osc_str").toString(), juce::dontSendNotification);
             oscAddrFloatEditor_.setText (leftObj->getProperty ("osc_float").toString(), juce::dontSendNotification);
+            if (leftObj->hasProperty ("osc_float_type"))
+                oscFloatTypeCombo_.setSelectedId ((int) leftObj->getProperty ("osc_float_type"), juce::dontSendNotification);
+            if (leftObj->hasProperty ("osc_float_max"))
+                oscFloatMaxEditor_.setText (leftObj->getProperty ("osc_float_max").toString(), juce::dontSendNotification);
 
             setComboText (ltcOutDeviceCombo_, leftObj->getProperty ("ltc_out_device").toString());
             setComboText (ltcOutChannelCombo_, leftObj->getProperty ("ltc_out_channel").toString());

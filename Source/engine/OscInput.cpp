@@ -17,7 +17,7 @@ OscInput::~OscInput()
     stop();
 }
 
-bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, juce::String& errorOut)
+bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String addrStr, juce::String addrFloat, OscValueType floatValueType, double floatMaxSeconds, juce::String& errorOut)
 {
     stop();
 
@@ -33,6 +33,8 @@ bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String
     if (addrFloat_.isEmpty())
         addrFloat_ = "/time";
 
+    floatValueType_.store ((int) floatValueType, std::memory_order_relaxed);
+    floatMaxSeconds_.store (floatMaxSeconds, std::memory_order_relaxed);
     lastPacketTsMs_.store (0.0, std::memory_order_relaxed);
     lastStringTsMs_.store (0.0, std::memory_order_relaxed);
     bindFellBack_.store (false, std::memory_order_relaxed);
@@ -454,6 +456,17 @@ void OscInput::parseStringTc (juce::String text, bool rememberStringTs)
 
 void OscInput::parseFloatTime (double t)
 {
+    const auto vt = static_cast<OscValueType> (floatValueType_.load (std::memory_order_relaxed));
+    if (vt == OscValueType::Frames)
+    {
+        const double fpsd = frameRateToDouble (fps_.load (std::memory_order_relaxed));
+        t = (fpsd > 0.0) ? t / fpsd : t;
+    }
+    else if (vt == OscValueType::Normalized)
+    {
+        t = t * floatMaxSeconds_.load (std::memory_order_relaxed);
+    }
+
     const auto fps = frameRateToDouble (fps_.load (std::memory_order_relaxed));
     const int fpsInt = juce::jmax (1, frameRateToInt (fps_.load (std::memory_order_relaxed)));
     const auto totalFrames = (int64_t) std::llround (juce::jmax (0.0, t) * fps);

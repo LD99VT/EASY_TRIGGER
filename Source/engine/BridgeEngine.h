@@ -59,7 +59,7 @@ public:
     void stopMtcInput();
     bool startArtnetInput (int interfaceIndex, const juce::String& bindIp, juce::String& errorOut);
     void stopArtnetInput();
-    bool startOscInput (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, juce::String& errorOut);
+    bool startOscInput (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, OscValueType floatValueType, double floatMaxSeconds, juce::String& errorOut);
     void stopOscInput();
 
     bool startLtcOutput (const AudioChoice& choice, int channel, double sampleRate, int bufferSize, juce::String& errorOut);
@@ -108,6 +108,8 @@ private:
     juce::String oscInAddrStr_;
     juce::String oscInAddrFloat_;
     FrameRate oscInFps_ { FrameRate::FPS_25 };
+    OscValueType oscInValueType_ { OscValueType::Seconds };
+    double oscInMaxSeconds_ { 3600.0 };
 
     LtcInput ltcInput_;
     MtcInput mtcInput_;

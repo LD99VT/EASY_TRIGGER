@@ -167,7 +167,7 @@ void BridgeEngine::stopArtnetInput()
     artnetInBindIp_ = "0.0.0.0";
 }
 
-bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, juce::String& errorOut)
+bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRate fps, const juce::String& addrStr, const juce::String& addrFloat, OscValueType floatValueType, double floatMaxSeconds, juce::String& errorOut)
 {
     const bool sameConfig =
         oscInput_.getIsRunning()
@@ -175,7 +175,9 @@ bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRat
         && bindIp == oscInBindIp_
         && fps == oscInFps_
         && addrStr == oscInAddrStr_
-        && addrFloat == oscInAddrFloat_;
+        && addrFloat == oscInAddrFloat_
+        && floatValueType == oscInValueType_
+        && floatMaxSeconds == oscInMaxSeconds_;
     if (sameConfig)
     {
         errorOut.clear();
@@ -184,13 +186,15 @@ bool BridgeEngine::startOscInput (int port, const juce::String& bindIp, FrameRat
 
     if (oscInput_.getIsRunning())
         oscInput_.stop();
-    if (! oscInput_.start (port, bindIp, fps, addrStr, addrFloat, errorOut))
+    if (! oscInput_.start (port, bindIp, fps, addrStr, addrFloat, floatValueType, floatMaxSeconds, errorOut))
         return false;
     oscInPort_ = port;
     oscInBindIp_ = bindIp;
     oscInFps_ = fps;
     oscInAddrStr_ = addrStr;
     oscInAddrFloat_ = addrFloat;
+    oscInValueType_ = floatValueType;
+    oscInMaxSeconds_ = floatMaxSeconds;
     errorOut.clear();
     return true;
 }

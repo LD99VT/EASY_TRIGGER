@@ -36,7 +36,36 @@ if(APPLE)
   set(_trigger_icns "${CMAKE_CURRENT_SOURCE_DIR}/Icon/Icon Trigger.icns")
   target_sources(EasyTrigger PRIVATE "${_trigger_icns}")
   set_source_files_properties("${_trigger_icns}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-  set_target_properties(EasyTrigger PROPERTIES MACOSX_BUNDLE_ICON_FILE "Icon Trigger.icns")
+  # CFBundleIconFile must NOT include the extension (Apple requirement)
+  set_target_properties(EasyTrigger PROPERTIES MACOSX_BUNDLE_ICON_FILE "Icon Trigger")
+  # Post-build: guarantee icon lands in bundle and Info.plist is correct
+  # (JUCE/Xcode sometimes does not substitute MACOSX_BUNDLE_ICON_FILE reliably)
+  add_custom_command(TARGET EasyTrigger POST_BUILD
+    COMMAND "${CMAKE_COMMAND}"
+      "-DBUNDLE_CONTENT=$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>"
+      "-DICNS_SRC=${_trigger_icns}"
+      "-DICON_NAME=Icon Trigger"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_macos_icon.cmake"
+    COMMENT "Patching macOS bundle icon"
+    VERBATIM
+  )
+  # Copy runtime assets into Contents/ (one level up from MacOS/) so the
+  # walk-up search in findUiBaseDirFromExe() finds Fonts/, Help/, Icon/ at
+  # Contents/ level — without placing non-code files in Contents/MacOS/
+  # (which would make codesign reject them as unsigned code objects).
+  add_custom_command(TARGET EasyTrigger POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/Fonts"
+      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/Help"
+      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Help"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/Icon"
+      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Icon"
+    COMMENT "Copying runtime assets into macOS bundle (Contents/)"
+    VERBATIM
+  )
 endif()
 
 target_sources(EasyTrigger PRIVATE

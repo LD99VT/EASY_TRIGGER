@@ -54,19 +54,43 @@ jobs:
 
       - name: Package
         run: |
-          APP_PATH=$(find build/macos-universal -type d -name "Easy Trigger v2.app" | head -n 1)
+          APP_PATH=$(find build/macos-universal -type d -name "Easy Trigger.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "Release app bundle not found"
-            exit 1
+            echo "ERROR: Easy Trigger.app not found" && exit 1
           fi
-          mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/EasyTrigger-macos-universal.zip"
+          VERSION=$(grep -m1 'project(.*VERSION' CMakeLists.txt | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          VOLNAME="Easy Trigger ${VERSION}"
+          STAGING=$(mktemp -d)
+          cp -R "$APP_PATH"    "$STAGING/Easy Trigger.app"
+          ln -sf /Applications "$STAGING/Applications"
+          mkdir -p Installer
+          DMG_RW="Installer/EasyTrigger-${VERSION}-rw.dmg"
+          DMG_PATH="Installer/EasyTrigger-${VERSION}.dmg"
+          hdiutil create -volname "$VOLNAME" -srcfolder "$STAGING" -ov -format UDRW "$DMG_RW"
+          rm -rf "$STAGING"
+          hdiutil attach "$DMG_RW" -readwrite -nobrowse > /dev/null
+          MOUNT="/Volumes/${VOLNAME}"
+          cp "Icon/Icon Trigger.icns" "$MOUNT/.VolumeIcon.icns"
+          xcrun SetFile -a V "$MOUNT/.VolumeIcon.icns" 2>/dev/null || true
+          python3 - "$MOUNT" <<'PYEOF'
+import struct, subprocess, sys
+path = sys.argv[1]
+r = subprocess.run(['xattr', '-px', 'com.apple.FinderInfo', path], capture_output=True, text=True)
+fi = bytearray.fromhex(r.stdout.strip().replace(' ', '').replace('\n', '')) if r.returncode == 0 and r.stdout.strip() else bytearray(32)
+while len(fi) < 32: fi.append(0)
+flags = struct.unpack('>H', fi[8:10])[0] | 0x0400
+struct.pack_into('>H', fi, 8, flags)
+subprocess.run(['xattr', '-wx', 'com.apple.FinderInfo', ' '.join(f'{b:02x}' for b in fi), path], check=True)
+PYEOF
+          hdiutil eject "$MOUNT" -quiet
+          hdiutil convert "$DMG_RW" -ov -format UDZO -o "$DMG_PATH"
+          rm -f "$DMG_RW"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: easytrigger-macos-universal
-          path: dist/EasyTrigger-macos-universal.zip
+          path: Installer/EasyTrigger-*.dmg
 
   publish-release:
     needs: [build-windows, build-macos]
@@ -83,5 +107,6 @@ jobs:
         with:
           files: |
             dist/easytrigger-win64/EasyTrigger-win64.zip
-            dist/easytrigger-macos-universal/EasyTrigger-macos-universal.zip
+            dist/easytrigger-macos-universal/EasyTrigger-*.dmg
+
           generate_release_notes: true

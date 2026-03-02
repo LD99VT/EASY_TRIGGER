@@ -26,12 +26,10 @@ bool OscInput::start (int port, juce::String bindIp, FrameRate fps, juce::String
         bindIp_ = "0.0.0.0";
 
     fps_.store (fps, std::memory_order_relaxed);
+    // Use the addresses exactly as configured in the UI. If the user clears
+    // a field, it stays empty and that message type is effectively disabled.
     addrStr_ = addrStr.trim();
     addrFloat_ = addrFloat.trim();
-    if (addrStr_.isEmpty())
-        addrStr_ = "/frames/str";
-    if (addrFloat_.isEmpty())
-        addrFloat_ = "/time";
 
     floatValueType_.store ((int) floatValueType, std::memory_order_relaxed);
     floatMaxSeconds_.store (floatMaxSeconds, std::memory_order_relaxed);
@@ -329,8 +327,6 @@ bool OscInput::parseMessage (const uint8_t* data, int size)
 
 bool OscInput::processDecodedMessage (const juce::String& address, bool hasString, const juce::String& stringArg, bool hasNumber, double numberArg)
 {
-    const auto addrLower = address.toLowerCase();
-
     if (address == addrStr_)
     {
         if (hasString)
@@ -372,31 +368,9 @@ bool OscInput::processDecodedMessage (const juce::String& address, bool hasStrin
         return false;
     }
 
-    if (addrLower.contains ("time") || addrLower.contains ("play") || addrLower.contains ("position"))
-    {
-        if (isStringSuppressed())
-            return false;
-        if (hasNumber)
-        {
-            parseFloatTime (numberArg);
-            return true;
-        }
-        if (hasString && looksNumeric (stringArg))
-        {
-            parseFloatTime (stringArg.getDoubleValue());
-            return true;
-        }
-    }
-
-    if (addrLower.contains ("frame") || addrLower.contains ("tc") || addrLower.contains ("timecode"))
-    {
-        if (hasString)
-        {
-            parseStringTc (stringArg.trim(), true);
-            return true;
-        }
-    }
-
+    // No heuristic matching by substring: if the OSC address does not
+    // exactly match either the string or float address configured in the
+    // UI, this message is ignored.
     return false;
 }
 

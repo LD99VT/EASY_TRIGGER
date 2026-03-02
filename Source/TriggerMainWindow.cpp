@@ -1069,7 +1069,8 @@ TriggerContentComponent::TriggerContentComponent()
     oscFloatTypeCombo_.addItem ("Normalized", 3);
     oscFloatTypeCombo_.setSelectedId (1, juce::dontSendNotification);
     oscFloatMaxEditor_.setText ("3600");
-    oscFloatMaxEditor_.setInputRestrictions (10, "0123456789.");
+    // Allow both dot and comma as decimal separators (e.g. 7.15 or 7,15).
+    oscFloatMaxEditor_.setInputRestrictions (10, "0123456789.,");
     styleEditor (oscIpEditor_);
     styleEditor (oscPortEditor_);
     styleEditor (oscAddrStrEditor_);
@@ -3011,7 +3012,17 @@ void TriggerContentComponent::onInputSettingsChanged()
     const auto bindIp = (oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim()
                                                                      : parseBindIpFromAdapterLabel (oscAdapterCombo_.getText()));
     const auto floatVt  = static_cast<bridge::engine::OscValueType> (oscFloatTypeCombo_.getSelectedId() - 1);
-    const double floatMax = juce::jmax (1.0, oscFloatMaxEditor_.getText().getDoubleValue());
+    // Accept both "7.15" and "7,15" by normalising comma to dot before parsing.
+    auto floatMaxRaw = oscFloatMaxEditor_.getText().trim();
+    juce::String floatMaxText;
+    for (int i = 0; i < floatMaxRaw.length(); ++i)
+    {
+        auto ch = floatMaxRaw[i];
+        if (ch == ',')
+            ch = '.';
+        floatMaxText += ch;
+    }
+    const double floatMax = juce::jmax (1.0, floatMaxText.getDoubleValue());
     bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()),
                                  bindIp,
                                  fps,
@@ -3581,8 +3592,9 @@ void TriggerContentComponent::resetSettings()
     artnetListenIpEditor_.setText  ("0.0.0.0",  juce::dontSendNotification);
     oscIpEditor_.setText           ("0.0.0.0",  juce::dontSendNotification);
     oscPortEditor_.setText         ("9000",      juce::dontSendNotification);
-    oscAddrStrEditor_.setText      ("",          juce::dontSendNotification);
-    oscAddrFloatEditor_.setText    ("",          juce::dontSendNotification);
+    // OSC addresses: restore the same defaults as at startup
+    oscAddrStrEditor_.setText      ("/frames/str", juce::dontSendNotification);
+    oscAddrFloatEditor_.setText    ("/time",       juce::dontSendNotification);
     oscFloatTypeCombo_.setSelectedId (1,         juce::dontSendNotification);
     oscFloatMaxEditor_.setText     ("3600",      juce::dontSendNotification);
 

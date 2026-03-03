@@ -18,6 +18,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install ImageMagick
+        shell: pwsh
+        run: choco install imagemagick --yes --no-progress
+
       - name: Configure
         run: cmake --preset windows-msvc
 
@@ -47,6 +51,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Install ImageMagick
+        run: brew install imagemagick
 
       - name: Configure
         run: cmake --preset macos-universal
@@ -92,7 +99,7 @@ jobs:
             ls /Volumes/
             exit 1
           fi
-          cp "Icon/Icon Trigger.icns" "$MOUNT/.VolumeIcon.icns" || true
+          cp "build/macos-universal/generated/Icon_Trigger.icns" "$MOUNT/.VolumeIcon.icns" || true
           xcrun SetFile -a V "$MOUNT/.VolumeIcon.icns" 2>/dev/null || true
           python3 cmake/set_dmg_icon.py "$MOUNT" || true
           hdiutil detach "$MOUNT" -quiet

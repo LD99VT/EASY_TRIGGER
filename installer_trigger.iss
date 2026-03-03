@@ -6,6 +6,7 @@
 #define AppExe "Easy Trigger.exe"
 #define AppPublisher "LUA"
 #define BuildDir "build\windows-msvc\EasyTrigger_artefacts\Release"
+#define IconFile "build\windows-msvc\generated\Icon_Trigger.ico"
 
 [Setup]
 AppName={#AppName}
@@ -16,7 +17,7 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputBaseFilename=EasyTrigger_Setup_{#AppVersion}
 OutputDir=Installer
-SetupIconFile={#BuildDir}\{#AppExe}
+SetupIconFile={#IconFile}
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2
 SolidCompression=yes

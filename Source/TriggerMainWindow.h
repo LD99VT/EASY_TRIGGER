@@ -113,7 +113,8 @@ private:
     void tableColumnsResized (juce::TableHeaderComponent*) override;
     void tableColumnsChanged (juce::TableHeaderComponent*) override {}
     void tableSortOrderChanged (juce::TableHeaderComponent*) override {}
-    void queryResolume();
+    void openGetClipsOptions();
+    void queryResolume (bool includeClipsWithOffset, bool includeClipsWithoutOffset);
     void updateClipCountdowns();
     void evaluateAndFireTriggers();
     void processEndActions();
@@ -295,6 +296,8 @@ private:
     bool queryPending_    { false };
     juce::int64 queryStartMs_ { 0 };
     bool clipReceiveEnabled_ { false };
+    bool includeClipsWithOffset_ { true };
+    bool includeClipsWithoutOffset_ { false };
     bool colWidthGuard_      { false };
 
     juce::String customGroupName_ { "Custom Trigger" };

@@ -801,6 +801,136 @@ private:
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
+class GetClipsOptionsWindow final : public juce::DocumentWindow
+{
+public:
+    using ApplyHandler = std::function<void (bool, bool)>;
+
+    GetClipsOptionsWindow (bool includeWithOffset,
+                           bool includeWithoutOffset,
+                           ApplyHandler onApply,
+                           juce::Component* relativeTo)
+        : juce::DocumentWindow ("Get Clips",
+                                juce::Colour::fromRGB (0x1e, 0x1e, 0x1e),
+                                juce::DocumentWindow::closeButton),
+          onApply_ (std::move (onApply))
+    {
+        setUsingNativeTitleBar (true);
+        setResizable (false, false);
+        setContentOwned (new Content (*this, includeWithOffset, includeWithoutOffset), true);
+        centreWithSize (360, 190);
+        if (relativeTo != nullptr)
+        {
+            const auto rc = relativeTo->getScreenBounds();
+            setBounds (rc.getCentreX() - 180, rc.getCentreY() - 95, 360, 190);
+        }
+        setVisible (true);
+#if JUCE_WINDOWS
+        applyNativeDarkTitleBar (*this);
+        if (auto* hwnd = (HWND) getWindowHandle())
+        {
+            ::SendMessageW (hwnd, WM_SETICON, 0, 0);
+            ::SendMessageW (hwnd, WM_SETICON, 1, 0);
+            constexpr long kGwlStyle = -16;
+            long st = (long) ::GetWindowLongPtrW (hwnd, kGwlStyle);
+            st &= ~(long) 0x00040000L;
+            st &= ~(long) 0x00010000L;
+            ::SetWindowLongPtrW (hwnd, kGwlStyle, st);
+            ::SetWindowPos (hwnd, nullptr, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        }
+#endif
+        toFront (true);
+    }
+
+    void closeButtonPressed() override
+    {
+        juce::MessageManager::callAsync (
+            [safe = juce::Component::SafePointer<GetClipsOptionsWindow> (this)]
+            {
+                if (auto* w = safe.getComponent()) delete w;
+            });
+    }
+
+    void applySelection (bool includeWithOffset, bool includeWithoutOffset)
+    {
+        if (! includeWithOffset && ! includeWithoutOffset)
+        {
+            DarkDialog::show ("Get Clips", "Select at least one option.", this);
+            return;
+        }
+
+        if (onApply_ != nullptr)
+            onApply_ (includeWithOffset, includeWithoutOffset);
+        closeButtonPressed();
+    }
+
+private:
+    ApplyHandler onApply_;
+
+    struct Content final : juce::Component
+    {
+        GetClipsOptionsWindow& owner_;
+        juce::Label title_ { {}, "Select which clips to import" };
+        juce::ToggleButton withOffset_;
+        juce::ToggleButton withoutOffset_;
+        juce::TextButton apply_ { "Apply" };
+        juce::TextButton cancel_ { "Cancel" };
+
+        Content (GetClipsOptionsWindow& owner, bool includeWithOffset, bool includeWithoutOffset)
+            : owner_ (owner)
+        {
+            title_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe0, 0xe0, 0xe0));
+            title_.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
+            title_.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (title_);
+
+            withOffset_.setButtonText ("Get Clips with timecode");
+            withoutOffset_.setButtonText ("Get Clips without timecode");
+            withOffset_.setToggleState (includeWithOffset, juce::dontSendNotification);
+            withoutOffset_.setToggleState (includeWithoutOffset, juce::dontSendNotification);
+            addAndMakeVisible (withOffset_);
+            addAndMakeVisible (withoutOffset_);
+
+            for (auto* b : { &apply_, &cancel_ })
+            {
+                b->setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+                b->setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+                b->setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
+                b->setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
+                addAndMakeVisible (*b);
+            }
+
+            apply_.onClick = [this]
+            {
+                owner_.applySelection (withOffset_.getToggleState(),
+                                       withoutOffset_.getToggleState());
+            };
+            cancel_.onClick = [this] { owner_.closeButtonPressed(); };
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (juce::Colour::fromRGB (0x17, 0x17, 0x17));
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (16);
+            title_.setBounds (area.removeFromTop (24));
+            area.removeFromTop (10);
+            withOffset_.setBounds (area.removeFromTop (26));
+            area.removeFromTop (8);
+            withoutOffset_.setBounds (area.removeFromTop (26));
+            area.removeFromTop (18);
+            auto buttons = area.removeFromTop (32);
+            cancel_.setBounds (buttons.removeFromRight (100));
+            buttons.removeFromRight (10);
+            apply_.setBounds (buttons.removeFromRight (100));
+        }
+    };
+};
+
 class InlineEndActionCell final : public juce::Component
 {
 public:
@@ -1186,7 +1316,7 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeMaxLayers_.setText ("4");
     resolumeMaxClips_.setText ("32");
     resolumeGlobalOffset_.setText ("00:00:00:00");
-    getTriggersBtn_.onClick = [this] { queryResolume(); };
+    getTriggersBtn_.onClick = [this] { openGetClipsOptions(); };
     createCustomBtn_.onClick = [this]
     {
         if (! hasCustomGroup())
@@ -2564,8 +2694,14 @@ void TriggerContentComponent::refreshTriggerRows()
 
     for (const auto& c : clips)
     {
-        if (! c.hasOffset)
+        if (c.durationSeconds <= 0.0)
             continue;
+
+        const bool includeThisClip = c.hasOffset ? includeClipsWithOffset_
+                                                 : includeClipsWithoutOffset_;
+        if (! includeThisClip)
+            continue;
+
         TriggerClip row;
         row.layer = c.layer;
         row.clip = c.clip;
@@ -2575,7 +2711,8 @@ void TriggerContentComponent::refreshTriggerRows()
         row.countdownTc = "00:00:00:00";
         row.triggerRangeSec = 5.0;
         row.durationTc = secondsToTc (c.durationSeconds, FrameRate::FPS_25);
-        row.triggerTc = secondsToTc (c.offsetSeconds, FrameRate::FPS_25);
+        row.triggerTc = c.hasOffset ? secondsToTc (c.offsetSeconds, FrameRate::FPS_25)
+                                    : "00:00:00:00";
         row.endActionMode = "off";
         row.connected = c.connected;
         row.timecodeHit = false;
@@ -3513,9 +3650,23 @@ void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
     s.disconnect();
 }
 
-void TriggerContentComponent::queryResolume()
+void TriggerContentComponent::openGetClipsOptions()
+{
+    new GetClipsOptionsWindow (includeClipsWithOffset_,
+                               includeClipsWithoutOffset_,
+                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (bool includeWithOffset, bool includeWithoutOffset)
+                               {
+                                   if (safe != nullptr)
+                                       safe->queryResolume (includeWithOffset, includeWithoutOffset);
+                               },
+                               getParentComponent());
+}
+
+void TriggerContentComponent::queryResolume (bool includeClipsWithOffset, bool includeClipsWithoutOffset)
 {
     juce::String err;
+    includeClipsWithOffset_ = includeClipsWithOffset;
+    includeClipsWithoutOffset_ = includeClipsWithoutOffset;
     clipReceiveEnabled_ = true;
     clipCollector_.clear();
     const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "0.0.0.0";
@@ -3534,7 +3685,18 @@ void TriggerContentComponent::queryResolume()
                                juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue()));
     queryPending_ = true;
     queryStartMs_ = juce::Time::currentTimeMillis();
-    setResolumeStatusText ("Resolume query sent", juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
+    juce::String modeText;
+    if (includeClipsWithOffset_ && includeClipsWithoutOffset_)
+        modeText = "all clips";
+    else if (includeClipsWithOffset_)
+        modeText = "clips with offset";
+    else if (includeClipsWithoutOffset_)
+        modeText = "clips without offset";
+    else
+        modeText = "no clips";
+
+    setResolumeStatusText ("Resolume query sent: " + modeText,
+                           juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
 }
 
 void TriggerContentComponent::resetSettings()

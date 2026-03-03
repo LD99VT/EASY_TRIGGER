@@ -16,8 +16,8 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputBaseFilename=EasyTrigger_Setup_{#AppVersion}
 OutputDir=Installer
-SetupIconFile=Icon\Icon Trigger.ico
-UninstallDisplayIcon={app}\Icon\Icon Trigger.ico
+SetupIconFile={#BuildDir}\{#AppExe}
+UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -50,8 +50,8 @@ Source: "Help\*"; DestDir: "{app}\Help"; Flags: ignoreversion recursesubdirs cre
 Source: "Icon\*"; DestDir: "{app}\Icon"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\Icon\Icon Trigger.ico"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\Icon\Icon Trigger.ico"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

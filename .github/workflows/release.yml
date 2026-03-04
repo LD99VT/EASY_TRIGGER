@@ -77,8 +77,8 @@ jobs:
       - name: Verify macOS Icon
         run: |
           set -euo pipefail
-          if [ -f "build/macos-universal/generated/Icon_Trigger.icns" ]; then
-            echo "Using generated ICNS: build/macos-universal/generated/Icon_Trigger.icns"
+          if [ -f "build/macos-universal/generated/Icon Trigger.icns" ]; then
+            echo "Using generated ICNS: build/macos-universal/generated/Icon Trigger.icns"
           elif [ -f "Icon/Icon Trigger.icns" ]; then
             echo "Generated ICNS not found, using source ICNS fallback: Icon/Icon Trigger.icns"
           else
@@ -125,8 +125,8 @@ jobs:
             exit 1
           fi
           ICNS_PATH=""
-          if [ -f "build/macos-universal/generated/Icon_Trigger.icns" ]; then
-            ICNS_PATH="build/macos-universal/generated/Icon_Trigger.icns"
+          if [ -f "build/macos-universal/generated/Icon Trigger.icns" ]; then
+            ICNS_PATH="build/macos-universal/generated/Icon Trigger.icns"
           elif [ -f "Icon/Icon Trigger.icns" ]; then
             ICNS_PATH="Icon/Icon Trigger.icns"
           else

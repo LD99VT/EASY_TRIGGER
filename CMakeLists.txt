@@ -78,15 +78,16 @@ if(APPLE)
     VERBATIM
   )
   add_custom_command(TARGET EasyTrigger POST_BUILD
+    COMMAND /bin/rm -rf
+      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Icon"
+    COMMAND /bin/rm -rf
+      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Icons"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${CMAKE_CURRENT_SOURCE_DIR}/Fonts"
       "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${CMAKE_CURRENT_SOURCE_DIR}/Help"
       "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Help"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-      "${CMAKE_CURRENT_SOURCE_DIR}/Icon"
-      "$<TARGET_BUNDLE_CONTENT_DIR:EasyTrigger>/Icon"
     COMMENT "Copying runtime assets into macOS bundle (Contents/)"
     VERBATIM
   )

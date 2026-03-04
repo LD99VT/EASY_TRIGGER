@@ -239,8 +239,7 @@ juce::File findUiBaseDirFromExe()
         auto hasAssets = [&] (const juce::File& dir)
         {
             return dir.getChildFile ("Fonts").exists()
-                && dir.getChildFile ("Help").exists()
-                && (dir.getChildFile ("Icon").exists() || dir.getChildFile ("Icons").exists());
+                && dir.getChildFile ("Help").exists();
         };
 
         if (hasAssets (r))
@@ -262,19 +261,29 @@ juce::File findUiBaseDirFromExe()
 juce::Image loadTriggerAppIcon()
 {
     auto base = findUiBaseDirFromExe();
-    if (! base.exists())
-        return {};
+    juce::File icon;
 
 #if JUCE_WINDOWS
-    auto icon = base.getChildFile ("Icon/Icon Trigger.ico");
+    if (! base.exists())
+        return {};
+    icon = base.getChildFile ("Icon/Icon Trigger.ico");
 #elif JUCE_MAC
-    auto icon = base.getChildFile ("Icon/Icon Trigger.icns");
+    auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+    auto resourcesDir = exeDir.getParentDirectory().getChildFile ("Resources");
+    if (resourcesDir.isDirectory())
+        icon = resourcesDir.getChildFile ("Icon Trigger.icns");
+
+    if (! icon.existsAsFile() && base.exists())
+        icon = base.getChildFile ("Icon/Icon Trigger.icns");
 #else
-    auto icon = base.getChildFile ("Icon/Icon Trigger.png");
+    if (! base.exists())
+        return {};
+    icon = base.getChildFile ("Icon/Icon Trigger.png");
 #endif
-    if (! icon.existsAsFile())
+
+    if (! icon.existsAsFile() && base.exists())
         icon = base.getChildFile ("Icon/Icon.png");
-    if (! icon.existsAsFile())
+    if (! icon.existsAsFile() && base.exists())
         icon = base.getChildFile ("Icons/App_Icon.png");
     if (! icon.existsAsFile())
         return {};

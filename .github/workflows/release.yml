@@ -28,6 +28,19 @@ jobs:
       - name: Build Release
         run: cmake --build --preset windows-msvc-release
 
+      - name: Verify Windows Icon
+        shell: pwsh
+        run: |
+          $generated = "build/windows-msvc/generated/Icon_Trigger.ico"
+          $fallback = "Icon/Icon Trigger.ico"
+          if (Test-Path $generated) {
+            Write-Host "Using generated ICO: $generated"
+          } elseif (Test-Path $fallback) {
+            Write-Host "Generated ICO not found, using source ICO fallback: $fallback"
+          } else {
+            throw "No ICO found for release build"
+          }
+
       - name: Build Installer
         shell: pwsh
         run: |
@@ -60,6 +73,18 @@ jobs:
 
       - name: Build Release
         run: cmake --build --preset macos-universal-release
+
+      - name: Verify macOS Icon
+        run: |
+          set -euo pipefail
+          if [ -f "build/macos-universal/generated/Icon_Trigger.icns" ]; then
+            echo "Using generated ICNS: build/macos-universal/generated/Icon_Trigger.icns"
+          elif [ -f "Icon/Icon Trigger.icns" ]; then
+            echo "Generated ICNS not found, using source ICNS fallback: Icon/Icon Trigger.icns"
+          else
+            echo "ERROR: No ICNS found for release build"
+            exit 1
+          fi
 
       - name: Package
         run: |
@@ -99,9 +124,18 @@ jobs:
             ls /Volumes/
             exit 1
           fi
-          cp "build/macos-universal/generated/Icon_Trigger.icns" "$MOUNT/.VolumeIcon.icns" || true
+          ICNS_PATH=""
+          if [ -f "build/macos-universal/generated/Icon_Trigger.icns" ]; then
+            ICNS_PATH="build/macos-universal/generated/Icon_Trigger.icns"
+          elif [ -f "Icon/Icon Trigger.icns" ]; then
+            ICNS_PATH="Icon/Icon Trigger.icns"
+          else
+            echo "ERROR: No ICNS available for DMG volume icon"
+            exit 1
+          fi
+          cp "$ICNS_PATH" "$MOUNT/.VolumeIcon.icns"
           xcrun SetFile -a V "$MOUNT/.VolumeIcon.icns" 2>/dev/null || true
-          python3 cmake/set_dmg_icon.py "$MOUNT" || true
+          python3 cmake/set_dmg_icon.py "$MOUNT"
           hdiutil detach "$MOUNT" -quiet
           hdiutil convert "$DMG_RW" -ov -format UDZO -o "$DMG_PATH"
           rm -f "$DMG_RW"

@@ -77,10 +77,8 @@ jobs:
       - name: Verify macOS Icon
         run: |
           set -euo pipefail
-          if [ -f "build/macos-universal/generated/Icon Trigger.icns" ]; then
-            echo "Using generated ICNS: build/macos-universal/generated/Icon Trigger.icns"
-          elif [ -f "Icon/Icon Trigger.icns" ]; then
-            echo "Generated ICNS not found, using source ICNS fallback: Icon/Icon Trigger.icns"
+          if [ -f "Icon/Icon Trigger.icns" ]; then
+            echo "Using source ICNS: Icon/Icon Trigger.icns"
           else
             echo "ERROR: No ICNS found for release build"
             exit 1
@@ -124,12 +122,8 @@ jobs:
             ls /Volumes/
             exit 1
           fi
-          ICNS_PATH=""
-          if [ -f "build/macos-universal/generated/Icon Trigger.icns" ]; then
-            ICNS_PATH="build/macos-universal/generated/Icon Trigger.icns"
-          elif [ -f "Icon/Icon Trigger.icns" ]; then
-            ICNS_PATH="Icon/Icon Trigger.icns"
-          else
+          ICNS_PATH="Icon/Icon Trigger.icns"
+          if [ ! -f "$ICNS_PATH" ]; then
             echo "ERROR: No ICNS available for DMG volume icon"
             exit 1
           fi

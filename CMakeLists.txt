@@ -60,11 +60,7 @@ endif()
 
 # macOS app bundle icon — copy .icns into Resources and set CFBundleIconFile
 if(APPLE)
-  if(USE_GENERATED_ICONS)
-    set(_trigger_icns "${GENERATED_ICNS_PATH}")
-  else()
-    set(_trigger_icns "${CMAKE_CURRENT_SOURCE_DIR}/Icon/Icon Trigger.icns")
-  endif()
+  set(_trigger_icns "${CMAKE_CURRENT_SOURCE_DIR}/Icon/Icon Trigger.icns")
   target_sources(EasyTrigger PRIVATE "${_trigger_icns}")
   set_source_files_properties("${_trigger_icns}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
   set_target_properties(EasyTrigger PROPERTIES MACOSX_BUNDLE_ICON_FILE "${ICON_BUNDLE_NAME}")

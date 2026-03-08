@@ -23,7 +23,7 @@ struct NetworkInterface
 };
 
 //==============================================================================
-// Enumerate active (non-loopback) IPv4 network interfaces
+// Enumerate active IPv4 network interfaces (including loopback)
 //==============================================================================
 inline juce::Array<NetworkInterface> getNetworkInterfaces()
 {
@@ -54,8 +54,6 @@ inline juce::Array<NetworkInterface> getNetworkInterfaces()
 
     for (auto* adapter = addresses; adapter != nullptr; adapter = adapter->Next)
     {
-        if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
-            continue;
         if (adapter->OperStatus != IfOperStatusUp)
             continue;
 
@@ -100,8 +98,6 @@ inline juce::Array<NetworkInterface> getNetworkInterfaces()
     for (auto* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next)
     {
         if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_INET)
-            continue;
-        if (ifa->ifa_flags & IFF_LOOPBACK)
             continue;
         if (!(ifa->ifa_flags & IFF_UP))
             continue;

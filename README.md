@@ -11,8 +11,9 @@ It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused 
 ![JUCE 8](https://img.shields.io/badge/framework-JUCE%208-green)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
 
----
-![Easy Trigger UI](screenshots/Screenshot 2026-03-08 at 21.40.25.png)
+## Screenshot
+
+(screenshots/Screenshot 2026-03-08 at 21.40.25.png)
 ---
 ## Supported timecode input
 

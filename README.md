@@ -12,7 +12,8 @@ It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
 
 ---
-
+(screenshots/Screenshot 2026-03-08 at 21.40.25.png)
+---
 ## Supported timecode input
 
 | Input | LTC | MTC | ArtNet TC | OSC |

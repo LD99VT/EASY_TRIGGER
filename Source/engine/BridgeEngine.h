@@ -2,17 +2,25 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
-#include "inputs/ArtnetInput.h"
-#include "inputs/LtcInput.h"
-#include "inputs/MtcInput.h"
 #include "OscInput.h"
-#include "outputs/ArtnetOutput.h"
-#include "outputs/AudioThruOutput.h"
-#include "outputs/LtcOutput.h"
-#include "outputs/MtcOutput.h"
+#include "timecode/EngineArtnetInput.h"
+#include "timecode/EngineArtnetOutput.h"
+#include "timecode/EngineAudioThru.h"
+#include "timecode/EngineLtcInput.h"
+#include "timecode/EngineLtcOutput.h"
+#include "timecode/EngineMtcInput.h"
+#include "timecode/EngineMtcOutput.h"
 
 namespace bridge::engine
 {
+using LtcInput = ::LtcInput;
+using MtcInput = ::MtcInput;
+using ArtnetInput = ::ArtnetInput;
+using LtcOutput = ::LtcOutput;
+using MtcOutput = ::MtcOutput;
+using ArtnetOutput = ::ArtnetOutput;
+using AudioThruOutput = ::AudioThru;
+
 enum class InputSource
 {
     LTC,

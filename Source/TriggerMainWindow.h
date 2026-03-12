@@ -127,6 +127,9 @@ private:
     static double comboSampleRate (const juce::ComboBox& combo);
     static int comboChannelIndex (const juce::ComboBox& combo);
     void syncOscIpWithAdapter();
+    void addResolumeSendTarget();
+    void removeResolumeSendTarget (int targetIndex);
+    std::vector<std::pair<juce::String, int>> collectResolumeSendTargets() const;
     void sendTestTrigger (int layer, int clip);
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
@@ -259,11 +262,25 @@ private:
 
     juce::TextEditor resolumeSendIp_;
     juce::TextEditor resolumeSendPort_;
+    juce::TextEditor resolumeSendIp2_;
+    juce::TextEditor resolumeSendPort2_;
+    juce::TextEditor resolumeSendIp3_;
+    juce::TextEditor resolumeSendPort3_;
+    juce::TextEditor resolumeSendIp4_;
+    juce::TextEditor resolumeSendPort4_;
+    juce::TextEditor resolumeSendIp5_;
+    juce::TextEditor resolumeSendPort5_;
+    juce::TextButton resolumeAddTargetBtn_  { "+" };
+    juce::TextButton resolumeDelTargetBtn2_ { "-" };
+    juce::TextButton resolumeDelTargetBtn3_ { "-" };
+    juce::TextButton resolumeDelTargetBtn4_ { "-" };
+    juce::TextButton resolumeDelTargetBtn5_ { "-" };
     juce::TextEditor resolumeListenIp_;
     juce::TextEditor resolumeListenPort_;
     juce::TextEditor resolumeMaxLayers_;
     juce::TextEditor resolumeMaxClips_;
     juce::TextEditor resolumeGlobalOffset_;
+    int resolumeSendTargetCount_ { 1 };
     juce::TextButton getTriggersBtn_  { "Get Clips" };
     juce::TextButton createCustomBtn_ { "Create Custom Trigger" };
     juce::TextButton settingsButton_  { "Settings" };

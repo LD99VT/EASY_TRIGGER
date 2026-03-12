@@ -158,4 +158,5 @@ jobs:
             dist/easytrigger-win64/EasyTrigger_Setup_*.exe
             dist/easytrigger-macos-universal/EasyTrigger-*.dmg
 
+          body_path: .github/release-notes.md
           generate_release_notes: true

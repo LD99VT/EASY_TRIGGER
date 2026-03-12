@@ -46,6 +46,17 @@ Pre-built installers are attached to each [GitHub Release](../../releases/latest
 
 ---
 
+## Latest update (2.6.4)
+
+- Resolume sender supports up to 5 target IP/port rows.
+- Added dynamic `+` / `-` controls for sender rows in Resolume Settings.
+- Listener IP + port are placed on one row.
+- Default listener IP is `127.0.0.1`.
+- Improved macOS `Get Clips` reliability with retry queries.
+- Help documentation updated for new Resolume networking flow.
+
+---
+
 ## Build from source
 
 ### Prerequisites

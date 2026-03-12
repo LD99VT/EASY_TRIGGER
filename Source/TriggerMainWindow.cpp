@@ -1320,11 +1320,28 @@ TriggerContentComponent::TriggerContentComponent()
 
     resolumeSendIp_.setText ("127.0.0.1");
     resolumeSendPort_.setText ("7000");
-    resolumeListenIp_.setText ("0.0.0.0");
+    resSendIpLbl_.setText ("Send target:", juce::dontSendNotification);
+    resolumeSendIp2_.setText ("127.0.0.1");
+    resolumeSendPort2_.setText ("7000");
+    resolumeSendIp3_.setText ("127.0.0.1");
+    resolumeSendPort3_.setText ("7000");
+    resolumeSendIp4_.setText ("127.0.0.1");
+    resolumeSendPort4_.setText ("7000");
+    resolumeSendIp5_.setText ("127.0.0.1");
+    resolumeSendPort5_.setText ("7000");
+    resListenIpLbl_.setText ("Listen:", juce::dontSendNotification);
+    for (auto* e : { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ })
+        e->setInputRestrictions (5, "0123456789");
+    resolumeListenIp_.setText ("127.0.0.1");
     resolumeListenPort_.setText ("7001");
     resolumeMaxLayers_.setText ("4");
     resolumeMaxClips_.setText ("32");
     resolumeGlobalOffset_.setText ("00:00:00:00");
+    resolumeAddTargetBtn_.onClick = [this] { addResolumeSendTarget(); };
+    resolumeDelTargetBtn2_.onClick = [this] { removeResolumeSendTarget (1); };
+    resolumeDelTargetBtn3_.onClick = [this] { removeResolumeSendTarget (2); };
+    resolumeDelTargetBtn4_.onClick = [this] { removeResolumeSendTarget (3); };
+    resolumeDelTargetBtn5_.onClick = [this] { removeResolumeSendTarget (4); };
     getTriggersBtn_.onClick = [this] { openGetClipsOptions(); };
     createCustomBtn_.onClick = [this]
     {
@@ -1412,6 +1429,19 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (resGlobalOffsetLbl_);
     leftViewportContent_.addAndMakeVisible (resolumeSendIp_);
     leftViewportContent_.addAndMakeVisible (resolumeSendPort_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp2_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort2_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp3_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort3_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp4_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort4_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp5_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort5_);
+    leftViewportContent_.addAndMakeVisible (resolumeAddTargetBtn_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn2_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn3_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn4_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn5_);
     leftViewportContent_.addAndMakeVisible (resolumeListenIp_);
     leftViewportContent_.addAndMakeVisible (resolumeListenPort_);
     leftViewportContent_.addAndMakeVisible (resolumeMaxLayers_);
@@ -1602,8 +1632,10 @@ void TriggerContentComponent::resized()
         if (src == 3) return 2;
         return 6;
     };
+    const int addRowCount = (resolumeSendTargetCount_ < 5 ? 1 : 0);
+    const int resolumeRows = 4 + juce::jlimit (1, 5, resolumeSendTargetCount_) + addRowCount;
     const int contentRows = 1 + (sourceExpanded_ ? rowsForSource() : 0)
-                          + 1 + (resolumeExpanded_ ? 7 : 0)
+                          + 1 + (resolumeExpanded_ ? resolumeRows : 0)
                           + 1 + (outLtcExpanded_ ? 6 : 0);
     const int viewportScrollWidth = leftViewport_.getScrollBarThickness();
     const bool vScrollNeeded = (contentRows * 44 > leftViewportRect_.getHeight());
@@ -1639,6 +1671,32 @@ void TriggerContentComponent::resized()
         setCompBounds (lbl, l.reduced (10, 0), wanted);
         auto control = r.reduced (0, 3).reduced (2, 0);
         setCompBounds (c, control, wanted);
+    };
+    auto layoutSendTargetRow = [&] (juce::Component* removeBtn, juce::TextEditor& ipEd, juce::TextEditor& portEd, bool wanted = true)
+    {
+        if (! wanted)
+        {
+            if (removeBtn != nullptr) removeBtn->setVisible (false);
+            ipEd.setVisible (false);
+            portEd.setVisible (false);
+            return;
+        }
+
+        auto r = nextRow();
+        pushRowRect (r, false);
+        auto left = r.removeFromLeft (112);
+        if (removeBtn != nullptr)
+        {
+            const int d = 28;
+            auto b = juce::Rectangle<int> (left.getCentreX() - d / 2, left.getCentreY() - d / 2, d, d);
+            setCompBounds (*removeBtn, b, true);
+        }
+
+        auto control = r.reduced (0, 3).reduced (2, 0);
+        auto port = control.removeFromRight (92);
+        control.removeFromRight (4);
+        setCompBounds (ipEd, control, true);
+        setCompBounds (portEd, port, true);
     };
     auto headerRow = [&] (juce::Label& lbl, ExpandCircleButton& btn, bool wanted = true)
     {
@@ -1704,10 +1762,34 @@ void TriggerContentComponent::resized()
     headerRow (resolumeHeader_, resolumeExpandBtn_);
     if (resolumeExpanded_)
     {
-        layoutParam (resSendIpLbl_, resolumeSendIp_);
-        layoutParam (resSendPortLbl_, resolumeSendPort_);
-        layoutParam (resListenIpLbl_, resolumeListenIp_);
-        layoutParam (resListenPortLbl_, resolumeListenPort_);
+        auto targetRow = nextRow();
+        pushRowRect (targetRow, false);
+        auto targetLbl = targetRow.removeFromLeft (112);
+        setCompBounds (resSendIpLbl_, targetLbl.reduced (10, 0), true);
+        auto firstControl = targetRow.reduced (0, 3).reduced (2, 0);
+        auto firstPort = firstControl.removeFromRight (92);
+        firstControl.removeFromRight (4);
+        setCompBounds (resolumeSendIp_, firstControl, true);
+        setCompBounds (resolumeSendPort_, firstPort, true);
+        layoutSendTargetRow (&resolumeDelTargetBtn2_, resolumeSendIp2_, resolumeSendPort2_, resolumeSendTargetCount_ >= 2);
+        layoutSendTargetRow (&resolumeDelTargetBtn3_, resolumeSendIp3_, resolumeSendPort3_, resolumeSendTargetCount_ >= 3);
+        layoutSendTargetRow (&resolumeDelTargetBtn4_, resolumeSendIp4_, resolumeSendPort4_, resolumeSendTargetCount_ >= 4);
+        layoutSendTargetRow (&resolumeDelTargetBtn5_, resolumeSendIp5_, resolumeSendPort5_, resolumeSendTargetCount_ >= 5);
+        if (resolumeSendTargetCount_ < 5)
+        {
+            auto addRow = nextRow();
+            const int plusD = 28;
+            setCompBounds (resolumeAddTargetBtn_, { addRow.getCentreX() - plusD / 2, addRow.getCentreY() - plusD / 2, plusD, plusD }, true);
+        }
+        auto listenRow = nextRow();
+        pushRowRect (listenRow, false);
+        auto listenLbl = listenRow.removeFromLeft (112);
+        setCompBounds (resListenIpLbl_, listenLbl.reduced (10, 0), true);
+        auto listenControl = listenRow.reduced (0, 3).reduced (2, 0);
+        auto listenPort = listenControl.removeFromRight (92);
+        listenControl.removeFromRight (4);
+        setCompBounds (resolumeListenIp_, listenControl, true);
+        setCompBounds (resolumeListenPort_, listenPort, true);
         layoutParam (resMaxLayersLbl_, resolumeMaxLayers_);
         layoutParam (resMaxClipsLbl_, resolumeMaxClips_);
         layoutParam (resGlobalOffsetLbl_, resolumeGlobalOffset_);
@@ -1806,14 +1888,27 @@ void TriggerContentComponent::resized()
     ltcOutLevelSlider_.setVisible (outLtcExpanded_);
 
     resSendIpLbl_.setVisible (resolumeExpanded_);
-    resSendPortLbl_.setVisible (resolumeExpanded_);
+    resSendPortLbl_.setVisible (false);
     resListenIpLbl_.setVisible (resolumeExpanded_);
-    resListenPortLbl_.setVisible (resolumeExpanded_);
+    resListenPortLbl_.setVisible (false);
     resMaxLayersLbl_.setVisible (resolumeExpanded_);
     resMaxClipsLbl_.setVisible (resolumeExpanded_);
     resGlobalOffsetLbl_.setVisible (resolumeExpanded_);
     resolumeSendIp_.setVisible (resolumeExpanded_);
     resolumeSendPort_.setVisible (resolumeExpanded_);
+    resolumeSendIp2_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 2);
+    resolumeSendPort2_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 2);
+    resolumeSendIp3_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 3);
+    resolumeSendPort3_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 3);
+    resolumeSendIp4_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 4);
+    resolumeSendPort4_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 4);
+    resolumeSendIp5_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 5);
+    resolumeSendPort5_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 5);
+    resolumeAddTargetBtn_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ < 5);
+    resolumeDelTargetBtn2_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 2);
+    resolumeDelTargetBtn3_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 3);
+    resolumeDelTargetBtn4_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 4);
+    resolumeDelTargetBtn5_.setVisible (resolumeExpanded_ && resolumeSendTargetCount_ >= 5);
     resolumeListenIp_.setVisible (resolumeExpanded_);
     resolumeListenPort_.setVisible (resolumeExpanded_);
     resolumeMaxLayers_.setVisible (resolumeExpanded_);
@@ -2634,7 +2729,13 @@ void TriggerContentComponent::applyTheme()
         e.setJustification (juce::Justification::centredLeft);
         e.setIndents (8, 0);
     };
-    for (auto* e : { &resolumeSendIp_, &resolumeSendPort_, &resolumeListenIp_, &resolumeListenPort_, &resolumeMaxLayers_, &resolumeMaxClips_, &resolumeGlobalOffset_ })
+    for (auto* e : { &resolumeSendIp_, &resolumeSendPort_,
+                     &resolumeSendIp2_, &resolumeSendPort2_,
+                     &resolumeSendIp3_, &resolumeSendPort3_,
+                     &resolumeSendIp4_, &resolumeSendPort4_,
+                     &resolumeSendIp5_, &resolumeSendPort5_,
+                     &resolumeListenIp_, &resolumeListenPort_,
+                     &resolumeMaxLayers_, &resolumeMaxClips_, &resolumeGlobalOffset_ })
     {
         styleEditor (*e);
     }
@@ -2667,6 +2768,18 @@ void TriggerContentComponent::applyTheme()
     createCustomBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
     createCustomBtn_.setColour (juce::TextButton::textColourOffId,  juce::Colours::white);
     createCustomBtn_.setColour (juce::TextButton::textColourOnId,   juce::Colours::white);
+
+    for (auto* b : { &resolumeDelTargetBtn2_, &resolumeDelTargetBtn3_, &resolumeDelTargetBtn4_, &resolumeDelTargetBtn5_ })
+    {
+        b->setColour (juce::TextButton::buttonColourId, input_);
+        b->setColour (juce::TextButton::buttonOnColourId, input_);
+        b->setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+        b->setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+    }
+    resolumeAddTargetBtn_.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    resolumeAddTargetBtn_.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+    resolumeAddTargetBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+    resolumeAddTargetBtn_.setColour (juce::TextButton::textColourOnId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
 }
 
 void TriggerContentComponent::openHelpPage()
@@ -2975,10 +3088,7 @@ void TriggerContentComponent::processEndActions()
 
     const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
 
-    juce::String ip = resolumeSendIp_.getText().trim();
-    if (ip.isEmpty())
-        ip = "127.0.0.1";
-    const int port = juce::jlimit (1, 65535, resolumeSendPort_.getText().trim().getIntValue());
+    const auto targets = collectResolumeSendTargets();
 
     for (auto it = pendingEndActions_.begin(); it != pendingEndActions_.end();)
     {
@@ -3007,14 +3117,17 @@ void TriggerContentComponent::processEndActions()
 
         if (addr.isNotEmpty())
         {
-            juce::OSCSender s;
-            if (s.connect (ip, port))
+            for (const auto& [ip, port] : targets)
             {
-                juce::OSCMessage on  (addr); on.addInt32 (1);
-                juce::OSCMessage off (addr); off.addInt32 (0);
-                s.send (on);
-                s.send (off);
-                s.disconnect();
+                juce::OSCSender s;
+                if (s.connect (ip, port))
+                {
+                    juce::OSCMessage on  (addr); on.addInt32 (1);
+                    juce::OSCMessage off (addr); off.addInt32 (0);
+                    s.send (on);
+                    s.send (off);
+                    s.disconnect();
+                }
             }
         }
 
@@ -3383,6 +3496,68 @@ void TriggerContentComponent::syncOscIpWithAdapter()
     oscIpEditor_.setReadOnly (lockIp);
 }
 
+void TriggerContentComponent::addResolumeSendTarget()
+{
+    if (resolumeSendTargetCount_ >= 5)
+        return;
+
+    auto ips = std::array<juce::TextEditor*, 5> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_ };
+    auto ports = std::array<juce::TextEditor*, 5> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ };
+    const int src = juce::jmax (0, resolumeSendTargetCount_ - 1);
+    ips[(size_t) resolumeSendTargetCount_]->setText (ips[(size_t) src]->getText(), juce::dontSendNotification);
+    ports[(size_t) resolumeSendTargetCount_]->setText (ports[(size_t) src]->getText(), juce::dontSendNotification);
+    ++resolumeSendTargetCount_;
+    resized();
+    repaint();
+}
+
+void TriggerContentComponent::removeResolumeSendTarget (int targetIndex)
+{
+    if (targetIndex <= 0 || targetIndex >= resolumeSendTargetCount_ || targetIndex > 4)
+        return;
+
+    auto ips = std::array<juce::TextEditor*, 5> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_ };
+    auto ports = std::array<juce::TextEditor*, 5> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ };
+    for (int i = targetIndex; i < resolumeSendTargetCount_ - 1; ++i)
+    {
+        ips[(size_t) i]->setText (ips[(size_t) (i + 1)]->getText(), juce::dontSendNotification);
+        ports[(size_t) i]->setText (ports[(size_t) (i + 1)]->getText(), juce::dontSendNotification);
+    }
+
+    ips[(size_t) (resolumeSendTargetCount_ - 1)]->setText ("127.0.0.1", juce::dontSendNotification);
+    ports[(size_t) (resolumeSendTargetCount_ - 1)]->setText ("7000", juce::dontSendNotification);
+    --resolumeSendTargetCount_;
+    resized();
+    repaint();
+}
+
+std::vector<std::pair<juce::String, int>> TriggerContentComponent::collectResolumeSendTargets() const
+{
+    std::vector<std::pair<juce::String, int>> targets;
+    targets.reserve ((size_t) juce::jlimit (1, 5, resolumeSendTargetCount_));
+
+    auto addTarget = [&targets] (const juce::TextEditor& ipEd, const juce::TextEditor& portEd)
+    {
+        auto ip = ipEd.getText().trim();
+        if (ip.isEmpty())
+            ip = "127.0.0.1";
+        const int port = juce::jlimit (1, 65535, portEd.getText().trim().getIntValue());
+        for (const auto& existing : targets)
+        {
+            if (existing.first == ip && existing.second == port)
+                return;
+        }
+        targets.emplace_back (ip, port);
+    };
+
+    addTarget (resolumeSendIp_, resolumeSendPort_);
+    if (resolumeSendTargetCount_ >= 2) addTarget (resolumeSendIp2_, resolumeSendPort2_);
+    if (resolumeSendTargetCount_ >= 3) addTarget (resolumeSendIp3_, resolumeSendPort3_);
+    if (resolumeSendTargetCount_ >= 4) addTarget (resolumeSendIp4_, resolumeSendPort4_);
+    if (resolumeSendTargetCount_ >= 5) addTarget (resolumeSendIp5_, resolumeSendPort5_);
+    return targets;
+}
+
 bool TriggerContentComponent::parseTcToFrames (const juce::String& tc, int fps, int& outFrames)
 {
     juce::StringArray p;
@@ -3469,17 +3644,18 @@ void TriggerContentComponent::sendTestTrigger (int layer, int clip)
 {
     if (layer < 1 || clip < 1)
         return;
-    juce::OSCSender s;
-    const auto ip = resolumeSendIp_.getText().trim().isNotEmpty() ? resolumeSendIp_.getText().trim() : juce::String ("127.0.0.1");
-    const int port = juce::jlimit (1, 65535, resolumeSendPort_.getText().trim().getIntValue());
-    if (! s.connect (ip, port))
-        return;
     const auto addr = "/composition/layers/" + juce::String (layer) + "/clips/" + juce::String (clip) + "/connect";
-    juce::OSCMessage on (addr); on.addInt32 (1);
-    juce::OSCMessage off (addr); off.addInt32 (0);
-    s.send (on);
-    s.send (off);
-    s.disconnect();
+    for (const auto& [ip, port] : collectResolumeSendTargets())
+    {
+        juce::OSCSender s;
+        if (! s.connect (ip, port))
+            continue;
+        juce::OSCMessage on (addr); on.addInt32 (1);
+        juce::OSCMessage off (addr); off.addInt32 (0);
+        s.send (on);
+        s.send (off);
+        s.disconnect();
+    }
 }
 
 void TriggerContentComponent::rebuildDisplayRows()
@@ -3625,10 +3801,7 @@ void TriggerContentComponent::deleteCustomGroup()
 
 void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
 {
-    const auto ip = resolumeSendIp_.getText().trim().isNotEmpty()
-                        ? resolumeSendIp_.getText().trim()
-                        : juce::String ("127.0.0.1");
-    const int port = juce::jlimit (1, 65535, resolumeSendPort_.getText().trim().getIntValue());
+    const auto targets = collectResolumeSendTargets();
 
     juce::String addr;
     if (clip.customType == "col")
@@ -3649,14 +3822,17 @@ void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
     if (addr.isEmpty())
         return;
 
-    juce::OSCSender s;
-    if (! s.connect (ip, port))
-        return;
-    juce::OSCMessage on (addr);  on.addInt32 (1);
-    juce::OSCMessage off (addr); off.addInt32 (0);
-    s.send (on);
-    s.send (off);
-    s.disconnect();
+    for (const auto& [ip, port] : targets)
+    {
+        juce::OSCSender s;
+        if (! s.connect (ip, port))
+            continue;
+        juce::OSCMessage on (addr);  on.addInt32 (1);
+        juce::OSCMessage off (addr); off.addInt32 (0);
+        s.send (on);
+        s.send (off);
+        s.disconnect();
+    }
 }
 
 void TriggerContentComponent::openGetClipsOptions()
@@ -3678,20 +3854,35 @@ void TriggerContentComponent::queryResolume (bool includeClipsWithOffset, bool i
     includeClipsWithoutOffset_ = includeClipsWithoutOffset;
     clipReceiveEnabled_ = true;
     clipCollector_.clear();
-    const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "0.0.0.0";
+    const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "127.0.0.1";
     if (! clipCollector_.startListening (listenIp, juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()), err))
     {
         setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
         return;
     }
-    const auto sendIp = resolumeSendIp_.getText().trim().isNotEmpty() ? resolumeSendIp_.getText().trim() : "127.0.0.1";
-    if (! clipCollector_.configureSender (sendIp, juce::jlimit (1, 65535, resolumeSendPort_.getText().getIntValue()), err))
+    auto targets = collectResolumeSendTargets();
+    if (targets.empty())
+        targets.emplace_back ("127.0.0.1", 7000);
+    if (! clipCollector_.configureSender (targets.front().first, targets.front().second, err))
     {
         setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
         return;
     }
-    clipCollector_.queryClips (juce::jlimit (1, 64, resolumeMaxLayers_.getText().getIntValue()),
-                               juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue()));
+    const int maxLayers = juce::jlimit (1, 64, resolumeMaxLayers_.getText().getIntValue());
+    const int maxClips = juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue());
+    clipCollector_.queryClips (maxLayers, maxClips);
+    // macOS may occasionally drop part of a large UDP query burst.
+    // Send two delayed retries to make clip collection deterministic.
+    for (int i = 1; i <= 2; ++i)
+    {
+        juce::Timer::callAfterDelay (160 * i,
+                                     [safe = juce::Component::SafePointer<TriggerContentComponent> (this), maxLayers, maxClips]
+                                     {
+                                         if (safe == nullptr || ! safe->clipReceiveEnabled_)
+                                             return;
+                                         safe->clipCollector_.queryClips (maxLayers, maxClips);
+                                     });
+    }
     queryPending_ = true;
     queryStartMs_ = juce::Time::currentTimeMillis();
     juce::String modeText;
@@ -3757,7 +3948,16 @@ void TriggerContentComponent::resetSettings()
     // Resolume
     resolumeSendIp_.setText        ("127.0.0.1", juce::dontSendNotification);
     resolumeSendPort_.setText      ("7000",       juce::dontSendNotification);
-    resolumeListenIp_.setText      ("0.0.0.0",   juce::dontSendNotification);
+    resolumeSendTargetCount_ = 1;
+    resolumeSendIp2_.setText       ("127.0.0.1", juce::dontSendNotification);
+    resolumeSendPort2_.setText     ("7000",       juce::dontSendNotification);
+    resolumeSendIp3_.setText       ("127.0.0.1", juce::dontSendNotification);
+    resolumeSendPort3_.setText     ("7000",       juce::dontSendNotification);
+    resolumeSendIp4_.setText       ("127.0.0.1", juce::dontSendNotification);
+    resolumeSendPort4_.setText     ("7000",       juce::dontSendNotification);
+    resolumeSendIp5_.setText       ("127.0.0.1", juce::dontSendNotification);
+    resolumeSendPort5_.setText     ("7000",       juce::dontSendNotification);
+    resolumeListenIp_.setText      ("127.0.0.1", juce::dontSendNotification);
     resolumeListenPort_.setText    ("7001",       juce::dontSendNotification);
     resolumeMaxLayers_.setText     ("4",          juce::dontSendNotification);
     resolumeMaxClips_.setText      ("32",         juce::dontSendNotification);
@@ -3990,6 +4190,15 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
         leftObj->setProperty ("ltc_out_thru", ltcThruDot_.getState());
         leftObj->setProperty ("res_send_ip", resolumeSendIp_.getText());
         leftObj->setProperty ("res_send_port", resolumeSendPort_.getText());
+        leftObj->setProperty ("res_send_target_count", resolumeSendTargetCount_);
+        leftObj->setProperty ("res_send_ip_2", resolumeSendIp2_.getText());
+        leftObj->setProperty ("res_send_port_2", resolumeSendPort2_.getText());
+        leftObj->setProperty ("res_send_ip_3", resolumeSendIp3_.getText());
+        leftObj->setProperty ("res_send_port_3", resolumeSendPort3_.getText());
+        leftObj->setProperty ("res_send_ip_4", resolumeSendIp4_.getText());
+        leftObj->setProperty ("res_send_port_4", resolumeSendPort4_.getText());
+        leftObj->setProperty ("res_send_ip_5", resolumeSendIp5_.getText());
+        leftObj->setProperty ("res_send_port_5", resolumeSendPort5_.getText());
         leftObj->setProperty ("res_listen_ip", resolumeListenIp_.getText());
         leftObj->setProperty ("res_listen_port", resolumeListenPort_.getText());
         leftObj->setProperty ("res_max_layers", resolumeMaxLayers_.getText());
@@ -4108,6 +4317,17 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
 
             resolumeSendIp_.setText (leftObj->getProperty ("res_send_ip").toString(), juce::dontSendNotification);
             resolumeSendPort_.setText (leftObj->getProperty ("res_send_port").toString(), juce::dontSendNotification);
+            resolumeSendTargetCount_ = juce::jlimit (1, 5, (int) leftObj->getProperty ("res_send_target_count"));
+            if (! leftObj->hasProperty ("res_send_target_count"))
+                resolumeSendTargetCount_ = 1;
+            resolumeSendIp2_.setText (leftObj->hasProperty ("res_send_ip_2") ? leftObj->getProperty ("res_send_ip_2").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
+            resolumeSendPort2_.setText (leftObj->hasProperty ("res_send_port_2") ? leftObj->getProperty ("res_send_port_2").toString() : juce::String ("7000"), juce::dontSendNotification);
+            resolumeSendIp3_.setText (leftObj->hasProperty ("res_send_ip_3") ? leftObj->getProperty ("res_send_ip_3").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
+            resolumeSendPort3_.setText (leftObj->hasProperty ("res_send_port_3") ? leftObj->getProperty ("res_send_port_3").toString() : juce::String ("7000"), juce::dontSendNotification);
+            resolumeSendIp4_.setText (leftObj->hasProperty ("res_send_ip_4") ? leftObj->getProperty ("res_send_ip_4").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
+            resolumeSendPort4_.setText (leftObj->hasProperty ("res_send_port_4") ? leftObj->getProperty ("res_send_port_4").toString() : juce::String ("7000"), juce::dontSendNotification);
+            resolumeSendIp5_.setText (leftObj->hasProperty ("res_send_ip_5") ? leftObj->getProperty ("res_send_ip_5").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
+            resolumeSendPort5_.setText (leftObj->hasProperty ("res_send_port_5") ? leftObj->getProperty ("res_send_port_5").toString() : juce::String ("7000"), juce::dontSendNotification);
             resolumeListenIp_.setText (leftObj->getProperty ("res_listen_ip").toString(), juce::dontSendNotification);
             resolumeListenPort_.setText (leftObj->getProperty ("res_listen_port").toString(), juce::dontSendNotification);
             resolumeMaxLayers_.setText (leftObj->getProperty ("res_max_layers").toString(), juce::dontSendNotification);

@@ -10,6 +10,7 @@ It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused 
 ![C++17](https://img.shields.io/badge/language-C%2B%2B17-orange)
 ![JUCE 8](https://img.shields.io/badge/framework-JUCE%208-green)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
+[![Donate](https://img.shields.io/badge/Donate-PayPal-00457C?logo=paypal&logoColor=white)](https://www.paypal.com/donate/?hosted_button_id=USMEZ72YAMXN6)
 
 ## Screenshot
 

@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "vendor/timecode/EngineTimecodeCore.h"
+#include "timecode/EngineTimecodeCore.h"
 
 #include <atomic>
 

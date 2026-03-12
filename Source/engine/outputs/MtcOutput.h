@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "../vendor/timecode/EngineMtcOutput.h"
+#include "../timecode/EngineMtcOutput.h"
 
 namespace bridge::engine
 {

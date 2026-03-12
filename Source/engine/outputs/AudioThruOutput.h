@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../vendor/timecode/EngineAudioThru.h"
+#include "../timecode/EngineAudioThru.h"
 
 namespace bridge::engine
 {

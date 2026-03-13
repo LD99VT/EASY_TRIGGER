@@ -14,7 +14,7 @@ It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused 
 
 ## Screenshot
 
-![Easy Trigger UI](screenshots/Screenshot%202026-03-08%20at%2021.40.25.png)
+![Easy Trigger UI](screenshots/New%20Shot.png)
 
 ---
 ## Supported timecode input
@@ -47,14 +47,16 @@ Pre-built installers are attached to each [GitHub Release](../../releases/latest
 
 ---
 
-## Latest update (2.6.4)
+## Latest update (2.6.7)
 
-- Resolume sender supports up to 5 target IP/port rows.
-- Added dynamic `+` / `-` controls for sender rows in Resolume Settings.
-- Listener IP + port are placed on one row.
-- Default listener IP is `127.0.0.1`.
-- Improved macOS `Get Clips` reliability with retry queries.
-- Help documentation updated for new Resolume networking flow.
+- Added the FPS strip under the main clock with `23.976 / 24 / 25 / 29.97 / 30` indicators.
+- LTC input and output now use the real channel count from the selected audio device, including stereo pair options such as `1+2`, `3+4`, and so on.
+- Added `Convert FPS` to `Out LTC` for explicit incoming-to-output frame-rate conversion.
+- Split Trigger destinations into a dedicated `Trigger Out` section with up to 5 send targets.
+- Each `Trigger Out` row now has its own network adapter selection and sends via a socket bound to that adapter.
+- Added adapter selection to `Resolume Settings` for the network side of the Resolume connection.
+- Added `TC` / `C` badges in the clip table and improved timecode clip detection using Resolume `transporttype`.
+- Refined the table and control styling, including unified `+ / -` buttons and updated help documentation.
 
 ---
 

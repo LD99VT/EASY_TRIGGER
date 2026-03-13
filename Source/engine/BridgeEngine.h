@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <optional>
 
 #include "OscInput.h"
 #include "timecode/EngineArtnetInput.h"
@@ -34,6 +35,7 @@ struct AudioChoice
     juce::String typeName;
     juce::String deviceName;
     juce::String displayName;
+    int channelCount { 0 };
 };
 
 struct RuntimeStatus
@@ -45,6 +47,7 @@ struct RuntimeStatus
     juce::String ltcOutStatus { "OFF" };
     juce::String mtcOutStatus { "OFF" };
     juce::String artnetOutStatus { "OFF" };
+    std::optional<FrameRate> ltcOutFps;
     juce::String errorText;
 };
 
@@ -85,6 +88,7 @@ public:
     void setArtnetOutputEnabled (bool enabled);
     void setLtcInputGain (float linearGain);
     void setLtcOutputGain (float linearGain);
+    void setLtcOutputConvertFps (std::optional<FrameRate> fps);
     float getLtcInputPeakLevel() const;
 
     void setInputSource (InputSource source);
@@ -133,6 +137,7 @@ private:
     bool ltcThruEnabled_ { false };
     bool mtcOutEnabled_ { false };
     bool artnetOutEnabled_ { false };
+    std::optional<FrameRate> ltcOutConvertFps_;
 
     // Cache active output configs to avoid expensive reopen when unchanged.
     juce::String ltcOutType_;

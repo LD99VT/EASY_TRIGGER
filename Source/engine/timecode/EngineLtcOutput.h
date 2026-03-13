@@ -13,7 +13,8 @@ public:
     ~LtcOutput() { stop(); }
 
     //==============================================================================
-    // channel: 0+ = specific channel, -1 = Ch 1 + Ch 2
+    // channel: 0+ = specific channel, negative = stereo pair starting at
+    // channel index stereoPairStartForSelection(channel)
     // sampleRate: preferred sample rate (0 = device default)
     // bufferSize: preferred buffer size (0 = device default)
     //==============================================================================
@@ -59,7 +60,8 @@ public:
             int ch = selectedChannel.load(std::memory_order_relaxed);
             if (ch >= 0 && ch >= numChannelsAvailable)
                 ch = 0;
-            if (ch == -1 && numChannelsAvailable < 2)
+            const int stereoStart = stereoPairStartForSelection (ch);
+            if (stereoStart >= 0 && stereoStart + 1 >= numChannelsAvailable)
                 ch = 0;
             selectedChannel.store(ch, std::memory_order_relaxed);
         }
@@ -89,7 +91,7 @@ public:
     juce::String getCurrentTypeName() const { return currentTypeName; }
     int getSelectedChannel() const { return selectedChannel.load(std::memory_order_relaxed); }
     int getChannelCount() const { return numChannelsAvailable; }
-    bool isStereoMode() const { return selectedChannel.load(std::memory_order_relaxed) == -1; }
+    bool isStereoMode() const { return stereoPairStartForSelection (selectedChannel.load(std::memory_order_relaxed)) >= 0; }
     double getActualSampleRate() const { return currentSampleRate; }
     int getActualBufferSize() const { return currentBufferSize; }
 
@@ -114,6 +116,15 @@ public:
     float getPeakLevel() const        { return peakLevel.load(std::memory_order_relaxed); }
 
 private:
+    static int stereoPairStartForSelection (int channel)
+    {
+        if (channel == -1)
+            return 0;
+        if (channel <= -2)
+            return (-channel) - 2;
+        return -1;
+    }
+
     juce::AudioDeviceManager deviceManager;
     juce::String currentDeviceName;
     juce::String currentTypeName;
@@ -290,14 +301,19 @@ private:
             return;
 
         int selCh = selectedChannel.load(std::memory_order_relaxed);
-        bool stereoMode = (selCh == -1);
-        int primaryCh = stereoMode ? 0 : selCh;
+        const int stereoStart = stereoPairStartForSelection (selCh);
+        const bool stereoMode = (stereoStart >= 0);
+        const int primaryCh = stereoMode ? stereoStart : selCh;
+        const int secondaryCh = stereoMode ? (stereoStart + 1) : -1;
         if (primaryCh >= numOutputChannels || !outputChannelData[primaryCh])
             return;
 
         float* output  = outputChannelData[primaryCh];
-        float* output2 = (stereoMode && numOutputChannels >= 2 && outputChannelData[1])
-                            ? outputChannelData[1] : nullptr;
+        float* output2 = (stereoMode
+                          && secondaryCh >= 0
+                          && secondaryCh < numOutputChannels
+                          && outputChannelData[secondaryCh])
+                            ? outputChannelData[secondaryCh] : nullptr;
         const float amplitude = baseAmplitude * outputGain.load(std::memory_order_relaxed);
 
         float peak = 0.0f;

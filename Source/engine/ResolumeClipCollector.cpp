@@ -8,6 +8,7 @@ namespace trigger::engine
 namespace
 {
 const std::regex kClipParamRe (R"(^/composition/layers/(\d+)/clips/(\d+)/transport/position/behaviour/(offset|duration)$)");
+const std::regex kClipTransportTypeRe (R"(^/composition/layers/(\d+)/clips/(\d+)/transporttype$)");
 const std::regex kClipConnectRe (R"(^/composition/layers/(\d+)/clips/(\d+)/(?:connect|connected|transport/position/behaviour/connect|transport/position/behaviour/connected)$)");
 const std::regex kClipNameRe (R"(^/composition/layers/(\d+)/clips/(\d+)/name$)");
 const std::regex kLayerNameRe (R"(^/composition/layers/(\d+)/name$)");
@@ -41,6 +42,11 @@ double resolumeDurationToSeconds (double raw)
     if (v > 604800.0)
         return v / 1000.0;      // milliseconds → seconds
     return v;                   // already in seconds
+}
+
+bool transportTypeIsSmpte (int type)
+{
+    return type == 2 || type == 3;
 }
 
 }
@@ -78,10 +84,20 @@ void ResolumeClipCollector::stopListening()
     disconnect();
 }
 
-bool ResolumeClipCollector::configureSender (const juce::String& sendIp, int sendPort, juce::String& errorOut)
+bool ResolumeClipCollector::configureSender (const juce::String& localBindIp, const juce::String& sendIp, int sendPort, juce::String& errorOut)
 {
     sender_.disconnect();
-    senderReady_ = sender_.connect (sendIp, sendPort);
+    sendSocket_.reset();
+
+    sendSocket_ = std::make_unique<juce::DatagramSocket> (true);
+    const auto bindIp = localBindIp.trim().isNotEmpty() ? localBindIp.trim() : juce::String ("0.0.0.0");
+    bool bound = false;
+    if (bindIp != "0.0.0.0")
+        bound = sendSocket_->bindToPort (0, bindIp);
+    else
+        bound = sendSocket_->bindToPort (0);
+
+    senderReady_ = bound && sender_.connectToSocket (*sendSocket_, sendIp, sendPort);
     if (! senderReady_)
     {
         errorOut = "Resolume send failed";
@@ -116,6 +132,7 @@ void ResolumeClipCollector::queryClips (int maxLayers, int maxClips)
             sendQuery (base + "/name");
             sendQuery (base + "/connect");
             sendQuery (base + "/connected");
+            sendQuery (base + "/transporttype");
             sendQuery (base + "/transport/position/behaviour/offset");
             sendQuery (base + "/transport/position/behaviour/duration");
         }
@@ -233,11 +250,32 @@ void ResolumeClipCollector::handleMessage (const juce::OSCMessage& msg)
             touchClip (layer, clip);
             if (kind == "offset")
             {
-                clips_[{ layer, clip }].offset = resolumeOffsetToSeconds (value);
-                clips_[{ layer, clip }].hasOffset = true;
+                const auto offsetSeconds = resolumeOffsetToSeconds (value);
+                auto& raw = clips_[{ layer, clip }];
+                raw.offset = offsetSeconds;
+                raw.hasOffset = raw.transportType >= 0
+                    ? transportTypeIsSmpte (raw.transportType)
+                    : (std::abs (offsetSeconds) > 0.0005);
             }
             else
                 clips_[{ layer, clip }].duration = resolumeDurationToSeconds (value);
+        }
+        if (onChanged) onChanged();
+        return;
+    }
+
+    if (std::regex_match (addr, m, kClipTransportTypeRe) && m.size() >= 3)
+    {
+        const int layer = juce::String (m[1].str()).getIntValue();
+        const int clip = juce::String (m[2].str()).getIntValue();
+        const int type = (int) std::round (parseNumericArg (msg));
+
+        {
+            const juce::ScopedLock sl (lock_);
+            touchClip (layer, clip);
+            auto& raw = clips_[{ layer, clip }];
+            raw.transportType = type;
+            raw.hasOffset = transportTypeIsSmpte (type);
         }
         if (onChanged) onChanged();
         return;

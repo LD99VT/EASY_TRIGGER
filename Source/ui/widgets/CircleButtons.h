@@ -10,12 +10,19 @@ public:
     std::function<void()> onClick;
     void setExpanded (bool expanded) { expanded_ = expanded; repaint(); }
     bool isExpanded() const { return expanded_; }
+    void setColours (juce::Colour fill, juce::Colour stroke, juce::Colour icon)
+    {
+        fill_ = fill;
+        stroke_ = stroke;
+        icon_ = icon;
+        repaint();
+    }
     void paint (juce::Graphics& g) override
     {
         const auto b = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (juce::Colour::fromRGB (0x48, 0x48, 0x48));
+        g.setColour (fill_);
         g.fillEllipse (b);
-        g.setColour (juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+        g.setColour (stroke_);
         g.drawEllipse (b, 1.0f);
 
         juce::Path p;
@@ -35,7 +42,7 @@ public:
             p.lineTo (cx + s, cy);
         }
         p.closeSubPath();
-        g.setColour (juce::Colour::fromRGB (0xf2, 0xf2, 0xf2));
+        g.setColour (icon_);
         g.fillPath (p);
     }
     void mouseUp (const juce::MouseEvent&) override
@@ -44,6 +51,9 @@ public:
     }
 private:
     bool expanded_ { true };
+    juce::Colour fill_   { juce::Colour::fromRGB (0x48, 0x48, 0x48) };
+    juce::Colour stroke_ { juce::Colour::fromRGB (0x5a, 0x5a, 0x5a) };
+    juce::Colour icon_   { juce::Colour::fromRGB (0xf2, 0xf2, 0xf2) };
 };
 
 class HelpCircleButton final : public juce::Component

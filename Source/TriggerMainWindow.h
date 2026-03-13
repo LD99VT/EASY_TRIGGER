@@ -1,5 +1,9 @@
 #pragma once
 
+#include <array>
+#include <functional>
+#include <memory>
+#include <optional>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <condition_variable>
 #include <cmath>
@@ -24,6 +28,34 @@
 
 namespace trigger
 {
+class FpsIndicatorStrip final : public juce::Component
+{
+public:
+    void setActiveFps (std::optional<FrameRate> fps);
+    juce::String getActiveFpsText() const;
+    void paint (juce::Graphics& g) override;
+
+private:
+    std::optional<FrameRate> activeFps_;
+};
+
+class FpsConvertStrip final : public juce::Component
+{
+public:
+    explicit FpsConvertStrip (std::initializer_list<FrameRate> availableRates);
+
+    void setSelectedFps (std::optional<FrameRate> fps);
+    std::optional<FrameRate> getSelectedFps() const { return selectedFps_; }
+    void paint (juce::Graphics& g) override;
+    void mouseUp (const juce::MouseEvent& event) override;
+
+    std::function<void(std::optional<FrameRate>)> onChange;
+
+private:
+    juce::Array<FrameRate> availableRates_;
+    std::optional<FrameRate> selectedFps_;
+};
+
 class TriggerContentComponent final : public juce::Component,
                                       private juce::Timer,
                                       private juce::TableListBoxModel,
@@ -55,6 +87,7 @@ private:
         juce::String endActionCol;
         juce::String endActionLayer;
         juce::String endActionClip;
+        bool hasOffset { false };
         bool connected { false };
         bool timecodeHit { false };
         bool isCustom { false };
@@ -97,7 +130,7 @@ private:
     void saveConfigToFile (const juce::File& file, int modeId);
     void loadConfigFromFile (const juce::File& file, int modeId);
     int calcPreferredHeight() const;
-    int calcHeightForState (bool sourceExpanded, int sourceId, bool outLtcExpanded, bool resolumeExpanded) const;
+    int calcHeightForState (bool sourceExpanded, int sourceId, bool triggerOutExpanded, bool outLtcExpanded, bool resolumeExpanded) const;
     void updateWindowHeight();
     void refreshTriggerRows();
     void rebuildDisplayRows();
@@ -123,13 +156,23 @@ private:
                               const juce::Array<bridge::engine::AudioChoice>& outputs);
     void refreshNetworkMidiLists();
     void refreshLtcDeviceListsByDriver();
+    void refreshLtcChannelCombos();
     void fillAudioCombo (juce::ComboBox& combo, const juce::Array<bridge::engine::AudioChoice>& choices);
     static double comboSampleRate (const juce::ComboBox& combo);
     static int comboChannelIndex (const juce::ComboBox& combo);
     void syncOscIpWithAdapter();
+    void syncResolumeListenIpWithAdapter();
+    void toggleSendAdapterExpanded (int index);
     void addResolumeSendTarget();
     void removeResolumeSendTarget (int targetIndex);
-    std::vector<std::pair<juce::String, int>> collectResolumeSendTargets() const;
+    struct ResolumeSendTarget
+    {
+        juce::String localBindIp;
+        juce::String ip;
+        int port { 7000 };
+    };
+    std::vector<ResolumeSendTarget> collectResolumeSendTargets() const;
+    bool sendOscPulse (const ResolumeSendTarget& target, const juce::String& addr) const;
     void sendTestTrigger (int layer, int clip);
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
@@ -188,16 +231,19 @@ private:
     juce::Label versionLabel_         { {}, juce::String ("v") + bridge::version::kAppVersion };
     HelpCircleButton helpButton_;
     juce::Label tcLabel_              { {}, "00:00:00:00" };
-    juce::Label fpsLabel_             { {}, "TC FPS: --" };
+    std::unique_ptr<FpsIndicatorStrip> fpsIndicatorStrip_;
     juce::Label resolumeStatusLabel_  { {}, "Resolume idle" };
     juce::Label statusLabel_          { {}, "STOPPED" };
     juce::Label sourceHeaderLabel_    { {}, "Source" };
+    juce::Label triggerOutHeaderLabel_{ {}, "Trigger Out" };
     juce::Label outLtcHeaderLabel_    { {}, "Out LTC" };
     juce::Label resolumeHeader_       { {}, "Resolume Settings" };
     ExpandCircleButton sourceExpandBtn_;
+    ExpandCircleButton triggerOutExpandBtn_;
     ExpandCircleButton outLtcExpandBtn_;
     ExpandCircleButton resolumeExpandBtn_;
     bool sourceExpanded_   { true };
+    bool triggerOutExpanded_ { false };
     bool outLtcExpanded_   { false };
     bool resolumeExpanded_ { false };
     juce::Label inDriverLbl_       { {}, "Driver:" };
@@ -221,10 +267,21 @@ private:
     juce::Label outDeviceLbl_      { {}, "Device (out):" };
     juce::Label outChannelLbl_     { {}, "Channel:" };
     juce::Label outRateLbl_        { {}, "Sample rate:" };
+    juce::Label outConvertLbl_     { {}, "Convert FPS:" };
     juce::Label outOffsetLbl_      { {}, "Offset (frames):" };
     juce::Label outLevelLbl_       { {}, "Output Gain:" };
     juce::Label ltcThruLbl_        { {}, "Thru" };
-    juce::Label resSendIpLbl_      { {}, "Send IP:" };
+    juce::Label resAdapterLbl_     { {}, "Adapter:" };
+    juce::Label resSendIpLbl_      { {}, "Send 1:" };
+    juce::Label resSendIpLbl2_     { {}, "Send 2:" };
+    juce::Label resSendIpLbl3_     { {}, "Send 3:" };
+    juce::Label resSendIpLbl4_     { {}, "Send 4:" };
+    juce::Label resSendIpLbl5_     { {}, "Send 5:" };
+    juce::Label resSendAdapterLbl1_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl2_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl3_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl4_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl5_{ {}, "Adapter:" };
     juce::Label resSendPortLbl_    { {}, "Send port:" };
     juce::Label resListenIpLbl_    { {}, "Listen IP:" };
     juce::Label resListenPortLbl_  { {}, "Listen port:" };
@@ -255,11 +312,23 @@ private:
     juce::ComboBox ltcOutDeviceCombo_;
     juce::ComboBox ltcOutChannelCombo_;
     juce::ComboBox ltcOutSampleRateCombo_;
+    FpsConvertStrip ltcConvertStrip_ { { FrameRate::FPS_2398, FrameRate::FPS_24, FrameRate::FPS_25, FrameRate::FPS_2997, FrameRate::FPS_30 } };
     juce::TextEditor ltcOffsetEditor_;
     juce::Slider ltcOutLevelSlider_;
     MacSwitch ltcOutSwitch_;
     DotToggle ltcThruDot_;
 
+    juce::ComboBox resolumeAdapterCombo_;
+    ExpandCircleButton resolumeSendExpandBtn1_;
+    ExpandCircleButton resolumeSendExpandBtn2_;
+    ExpandCircleButton resolumeSendExpandBtn3_;
+    ExpandCircleButton resolumeSendExpandBtn4_;
+    ExpandCircleButton resolumeSendExpandBtn5_;
+    juce::ComboBox resolumeSendAdapterCombo1_;
+    juce::ComboBox resolumeSendAdapterCombo2_;
+    juce::ComboBox resolumeSendAdapterCombo3_;
+    juce::ComboBox resolumeSendAdapterCombo4_;
+    juce::ComboBox resolumeSendAdapterCombo5_;
     juce::TextEditor resolumeSendIp_;
     juce::TextEditor resolumeSendPort_;
     juce::TextEditor resolumeSendIp2_;
@@ -281,6 +350,11 @@ private:
     juce::TextEditor resolumeMaxClips_;
     juce::TextEditor resolumeGlobalOffset_;
     int resolumeSendTargetCount_ { 1 };
+    bool resolumeSendExpanded1_ { true };
+    bool resolumeSendExpanded2_ { false };
+    bool resolumeSendExpanded3_ { false };
+    bool resolumeSendExpanded4_ { false };
+    bool resolumeSendExpanded5_ { false };
     juce::TextButton getTriggersBtn_  { "Get Clips" };
     juce::TextButton createCustomBtn_ { "Create Custom Trigger" };
     juce::TextButton settingsButton_  { "Settings" };

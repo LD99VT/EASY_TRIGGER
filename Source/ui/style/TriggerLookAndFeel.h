@@ -124,8 +124,25 @@ public:
                                bool isButtonDown) override
     {
         juce::ignoreUnused (backgroundColour);
-        auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+        auto bounds = button.getLocalBounds().toFloat();
         auto c = button.findColour (juce::TextButton::buttonColourId);
+        const auto text = button.getButtonText().trim();
+        const bool isPlusMinus = (text == "+" || text == "-");
+        if (isPlusMinus)
+        {
+            const float side = juce::jmin (28.0f, juce::jmin (bounds.getWidth() - 6.0f, bounds.getHeight() - 6.0f));
+            bounds = juce::Rectangle<float> (0, 0, side, side).withCentre (bounds.getCentre());
+            c = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
+            if (isMouseOverButton || isButtonDown)
+                c = isButtonDown ? kTeal.darker (0.15f) : kTeal;
+            g.setColour (c);
+            g.fillRoundedRectangle (bounds, 5.0f);
+            g.setColour (juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
+            g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+            return;
+        }
+
+        bounds = bounds.reduced (0.5f);
         if (isButtonDown)
             c = c.darker (0.15f);
         else if (isMouseOverButton)
@@ -135,6 +152,32 @@ public:
         g.fillRoundedRectangle (bounds, 5.0f);
         g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+    }
+
+    void drawButtonText (juce::Graphics& g,
+                         juce::TextButton& button,
+                         bool isMouseOverButton,
+                         bool isButtonDown) override
+    {
+        const auto text = button.getButtonText().trim();
+        const bool isPlusMinus = (text == "+" || text == "-");
+        if (! isPlusMinus)
+        {
+            juce::LookAndFeel_V4::drawButtonText (g, button, isMouseOverButton, isButtonDown);
+            return;
+        }
+
+        auto bounds = button.getLocalBounds().toFloat();
+        const float side = juce::jmin (28.0f, juce::jmin (bounds.getWidth() - 6.0f, bounds.getHeight() - 6.0f));
+        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (bounds.getCentre());
+        const float cx = sq.getCentreX();
+        const float cy = sq.getCentreY();
+        const auto icon = (isMouseOverButton || isButtonDown) ? kBg : juce::Colour::fromRGB (0x90, 0x90, 0x90);
+
+        g.setColour (icon);
+        g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));
+        if (text == "+")
+            g.fillRect (juce::Rectangle<float> (cx - 1.0f, cy - 5.5f, 2.0f, 11.0f));
     }
 
     void drawComboBox (juce::Graphics& g,

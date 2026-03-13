@@ -15,7 +15,8 @@ public:
     ~AudioThru() { stop(); }
 
     //==============================================================================
-    // channel: 0+ = specific channel, -1 = Ch 1 + Ch 2
+    // channel: 0+ = specific channel, negative = stereo pair starting at
+    // channel index stereoPairStartForSelection(channel)
     // sampleRate: preferred sample rate (0 = device default)
     // bufferSize: preferred buffer size (0 = device default)
     //==============================================================================
@@ -63,7 +64,8 @@ public:
             int ch = selectedChannel.load(std::memory_order_relaxed);
             if (ch >= 0 && ch >= numChannelsAvailable)
                 ch = 0;
-            if (ch == -1 && numChannelsAvailable < 2)
+            const int stereoStart = stereoPairStartForSelection (ch);
+            if (stereoStart >= 0 && stereoStart + 1 >= numChannelsAvailable)
                 ch = 0;
             selectedChannel.store(ch, std::memory_order_relaxed);
         }
@@ -107,6 +109,15 @@ public:
     float getPeakLevel() const { return peakLevel.load(std::memory_order_relaxed); }
 
 private:
+    static int stereoPairStartForSelection (int channel)
+    {
+        if (channel == -1)
+            return 0;
+        if (channel <= -2)
+            return (-channel) - 2;
+        return -1;
+    }
+
     juce::AudioDeviceManager deviceManager;
     juce::String currentDeviceName;
     juce::String currentTypeName;
@@ -138,8 +149,10 @@ private:
         if (!src) return;
 
         int selCh = selectedChannel.load(std::memory_order_relaxed);
-        bool stereoMode = (selCh == -1);
-        int primaryCh = stereoMode ? 0 : selCh;
+        const int stereoStart = stereoPairStartForSelection (selCh);
+        const bool stereoMode = (stereoStart >= 0);
+        const int primaryCh = stereoMode ? stereoStart : selCh;
+        const int secondaryCh = stereoMode ? (stereoStart + 1) : -1;
         if (primaryCh >= numOutputCh || !outputChannelData[primaryCh])
             return;
 
@@ -156,8 +169,8 @@ private:
         }
         peakLevel.store(peak, std::memory_order_relaxed);
 
-        if (stereoMode && numOutputCh >= 2 && outputChannelData[1])
-            std::memcpy(outputChannelData[1], output, sizeof(float) * (size_t)numSamples);
+        if (stereoMode && secondaryCh >= 0 && secondaryCh < numOutputCh && outputChannelData[secondaryCh])
+            std::memcpy(outputChannelData[secondaryCh], output, sizeof(float) * (size_t)numSamples);
     }
 
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override

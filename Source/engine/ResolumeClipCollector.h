@@ -29,7 +29,7 @@ public:
     bool startListening (const juce::String& listenIp, int listenPort, juce::String& errorOut);
     void stopListening();
 
-    bool configureSender (const juce::String& sendIp, int sendPort, juce::String& errorOut);
+    bool configureSender (const juce::String& localBindIp, const juce::String& sendIp, int sendPort, juce::String& errorOut);
     void queryClips (int maxLayers, int maxClips);
 
     std::vector<ClipTriggerInfo> snapshot() const;
@@ -44,6 +44,7 @@ private:
     void touchClip (int layer, int clip);
 
     juce::OSCSender sender_;
+    std::unique_ptr<juce::DatagramSocket> sendSocket_;
     bool senderReady_ { false };
 
     struct RawClip
@@ -52,6 +53,7 @@ private:
         juce::String clipName;
         double offset { 0.0 };
         double duration { 0.0 };
+        int transportType { -1 };
         bool hasOffset { false };
         bool connected { false };
     };

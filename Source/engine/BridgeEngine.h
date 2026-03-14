@@ -59,6 +59,7 @@ public:
 
     juce::Array<AudioChoice> scanAudioInputs() const;
     juce::Array<AudioChoice> scanAudioOutputs() const;
+    static int queryAudioChannelCount (const AudioChoice& choice, bool wantInputs);
 
     juce::StringArray midiInputs();
     juce::StringArray midiOutputs();

@@ -1295,13 +1295,34 @@ public:
     void run() override
     {
         juce::Array<bridge::engine::AudioChoice> inputs, outputs;
+        if (tempManager_ == nullptr)
+            return;
 
-        if (auto* owner = safeOwner_.getComponent())
+        for (auto* type : tempManager_->getAvailableDeviceTypes())
         {
-            inputs = owner->bridgeEngine_.scanAudioInputs();
-            if (threadShouldExit())
+            if (threadShouldExit() || type == nullptr)
                 return;
-            outputs = owner->bridgeEngine_.scanAudioOutputs();
+
+            const auto typeName = type->getTypeName();
+            type->scanForDevices();
+
+            for (const auto& name : type->getDeviceNames (true))
+            {
+                bridge::engine::AudioChoice choice;
+                choice.typeName = typeName;
+                choice.deviceName = name;
+                choice.displayName = AudioDeviceEntry::makeDisplayName (typeName, name);
+                inputs.add (choice);
+            }
+
+            for (const auto& name : type->getDeviceNames (false))
+            {
+                bridge::engine::AudioChoice choice;
+                choice.typeName = typeName;
+                choice.deviceName = name;
+                choice.displayName = AudioDeviceEntry::makeDisplayName (typeName, name);
+                outputs.add (choice);
+            }
         }
 
         if (threadShouldExit())
@@ -1314,6 +1335,8 @@ public:
                 owner->onAudioScanComplete (inputs, outputs);
         });
     }
+
+    std::unique_ptr<juce::AudioDeviceManager> tempManager_;
 
 private:
     juce::Component::SafePointer<TriggerContentComponent> safeOwner_;
@@ -3725,6 +3748,8 @@ void TriggerContentComponent::startAudioDeviceScan()
     }
 
     scanThread_ = std::make_unique<AudioScanThread> (this);
+    scanThread_->tempManager_ = std::make_unique<juce::AudioDeviceManager>();
+    scanThread_->tempManager_->initialise (128, 128, nullptr, false);
     scanThread_->startThread();
 }
 
@@ -3918,7 +3943,12 @@ void TriggerContentComponent::refreshLtcChannelCombos()
     {
         const int realIdx = filteredInputIndices_[inIdx];
         if (juce::isPositiveAndBelow (realIdx, inputChoices_.size()))
-            inputChannelCount = inputChoices_[realIdx].channelCount;
+        {
+            auto& choice = inputChoices_.getReference (realIdx);
+            if (choice.channelCount <= 0)
+                choice.channelCount = bridge::engine::BridgeEngine::queryAudioChannelCount (choice, true);
+            inputChannelCount = choice.channelCount;
+        }
     }
     refill (ltcInChannelCombo_, inputChannelCount);
 
@@ -3929,7 +3959,12 @@ void TriggerContentComponent::refreshLtcChannelCombos()
     {
         const int realIdx = filteredOutputIndices_[outIdx];
         if (juce::isPositiveAndBelow (realIdx, outputChoices_.size()))
-            outputChannelCount = outputChoices_[realIdx].channelCount;
+        {
+            auto& choice = outputChoices_.getReference (realIdx);
+            if (choice.channelCount <= 0)
+                choice.channelCount = bridge::engine::BridgeEngine::queryAudioChannelCount (choice, false);
+            outputChannelCount = choice.channelCount;
+        }
     }
     refill (ltcOutChannelCombo_, outputChannelCount);
 }

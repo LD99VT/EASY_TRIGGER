@@ -21,11 +21,24 @@ if(NOT EXISTS "${_png_abs}")
 endif()
 
 # ImageMagick: prefer "magick" (v7), then "convert" (v6)
-find_program(_img_convert NAMES magick convert convert.exe
-  DOC "ImageMagick convert for icon generation")
-if(NOT _img_convert)
-  message(STATUS "Icon: ${PNG_ICON_SOURCE} found but ImageMagick not found; using existing .ico/.icns")
-  return()
+set(_img_convert "")
+
+if(WIN32)
+  find_program(_img_magick NAMES magick.exe magick
+    DOC "ImageMagick magick for icon generation")
+  if(_img_magick)
+    set(_img_convert "${_img_magick}")
+  else()
+    message(STATUS "Icon: ImageMagick 'magick' not found on Windows; using existing .ico/.icns")
+    return()
+  endif()
+else()
+  find_program(_img_convert NAMES magick convert
+    DOC "ImageMagick convert for icon generation")
+  if(NOT _img_convert)
+    message(STATUS "Icon: ${PNG_ICON_SOURCE} found but ImageMagick not found; using existing .ico/.icns")
+    return()
+  endif()
 endif()
 
 # Sanitize base name for files (no spaces in generated filenames for simplicity)

@@ -3656,16 +3656,24 @@ void TriggerContentComponent::ltcOutputApplyLoop()
         }
         else
         {
-            // Normal mode (Thru OFF) → stop thru, run normal output
+            // Normal mode (Thru OFF) → stop thru; only open LTC output when enabled.
             bridgeEngine_.stopLtcThru();
-            bridgeEngine_.startLtcOutput (choice, channel, sampleRate, bufferSize, err);
-            bridgeEngine_.setLtcOutputEnabled (enabled);
-            if (err.isNotEmpty())
-                juce::MessageManager::callAsync ([safeThis, err]
-                {
-                    if (safeThis != nullptr)
-                        safeThis->setTimecodeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
-                });
+            if (enabled)
+            {
+                bridgeEngine_.startLtcOutput (choice, channel, sampleRate, bufferSize, err);
+                bridgeEngine_.setLtcOutputEnabled (true);
+                if (err.isNotEmpty())
+                    juce::MessageManager::callAsync ([safeThis, err]
+                    {
+                        if (safeThis != nullptr)
+                            safeThis->setTimecodeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
+                    });
+            }
+            else
+            {
+                bridgeEngine_.stopLtcOutput();
+                bridgeEngine_.setLtcOutputEnabled (false);
+            }
         }
     }
 }
@@ -3685,53 +3693,79 @@ void TriggerContentComponent::onOutputSettingsChanged()
 void TriggerContentComponent::onInputSettingsChanged()
 {
     juce::String err;
+    const int sourceId = sourceCombo_.getSelectedId();
 
-    const int ltcSelectedId = ltcInDeviceCombo_.getSelectedId();
-    const int ltcIdx = ltcSelectedId > 0 ? ltcSelectedId - 1 : -1;
-    if (juce::isPositiveAndBelow (ltcIdx, filteredInputIndices_.size()))
-        bridgeEngine_.startLtcInput (inputChoices_[filteredInputIndices_[ltcIdx]],
-                                     comboChannelIndex (ltcInChannelCombo_),
-                                     comboSampleRate (ltcInSampleRateCombo_),
-                                     0,
+    if (sourceId == 1)
+    {
+        bridgeEngine_.stopMtcInput();
+        bridgeEngine_.stopArtnetInput();
+        bridgeEngine_.stopOscInput();
+
+        const int ltcSelectedId = ltcInDeviceCombo_.getSelectedId();
+        const int ltcIdx = ltcSelectedId > 0 ? ltcSelectedId - 1 : -1;
+        if (juce::isPositiveAndBelow (ltcIdx, filteredInputIndices_.size()))
+            bridgeEngine_.startLtcInput (inputChoices_[filteredInputIndices_[ltcIdx]],
+                                         comboChannelIndex (ltcInChannelCombo_),
+                                         comboSampleRate (ltcInSampleRateCombo_),
+                                         0,
+                                         err);
+    }
+    else if (sourceId == 2)
+    {
+        bridgeEngine_.stopLtcInput();
+        bridgeEngine_.stopArtnetInput();
+        bridgeEngine_.stopOscInput();
+
+        if (mtcInCombo_.getNumItems() > 0)
+            bridgeEngine_.startMtcInput (mtcInCombo_.getSelectedItemIndex(), err);
+    }
+    else if (sourceId == 3)
+    {
+        bridgeEngine_.stopLtcInput();
+        bridgeEngine_.stopMtcInput();
+        bridgeEngine_.stopOscInput();
+
+        if (artnetInCombo_.getNumItems() > 0)
+        {
+            const auto artnetListenIp = artnetListenIpEditor_.getText().trim();
+            bridgeEngine_.startArtnetInput (artnetInCombo_.getSelectedItemIndex(),
+                                            (artnetListenIp == "0.0.0.0" ? juce::String() : artnetListenIp),
+                                            err);
+        }
+    }
+    else
+    {
+        bridgeEngine_.stopLtcInput();
+        bridgeEngine_.stopMtcInput();
+        bridgeEngine_.stopArtnetInput();
+
+        FrameRate fps = FrameRate::FPS_25;
+        if (oscFpsCombo_.getSelectedId() == 1) fps = FrameRate::FPS_24;
+        if (oscFpsCombo_.getSelectedId() == 3) fps = FrameRate::FPS_2997;
+        if (oscFpsCombo_.getSelectedId() == 4) fps = FrameRate::FPS_30;
+        const auto bindIp = (oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim()
+                                                                         : parseBindIpFromAdapterLabel (oscAdapterCombo_.getText()));
+        const auto floatVt  = static_cast<bridge::engine::OscValueType> (oscFloatTypeCombo_.getSelectedId() - 1);
+        // Accept both "7.15" and "7,15" by normalising comma to dot before parsing.
+        auto floatMaxRaw = oscFloatMaxEditor_.getText().trim();
+        juce::String floatMaxText;
+        for (int i = 0; i < floatMaxRaw.length(); ++i)
+        {
+            auto ch = floatMaxRaw[i];
+            if (ch == ',')
+                ch = '.';
+            floatMaxText += ch;
+        }
+        const double floatMax = juce::jmax (1.0, floatMaxText.getDoubleValue());
+        bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()),
+                                     bindIp,
+                                     fps,
+                                     oscAddrStrEditor_.getText(),
+                                     oscAddrFloatEditor_.getText(),
+                                     floatVt,
+                                     floatMax,
                                      err);
-
-    if (mtcInCombo_.getNumItems() > 0)
-        bridgeEngine_.startMtcInput (mtcInCombo_.getSelectedItemIndex(), err);
-
-    if (artnetInCombo_.getNumItems() > 0)
-    {
-        const auto artnetListenIp = artnetListenIpEditor_.getText().trim();
-        bridgeEngine_.startArtnetInput (artnetInCombo_.getSelectedItemIndex(),
-                                        (artnetListenIp == "0.0.0.0" ? juce::String() : artnetListenIp),
-                                        err);
     }
-
-    FrameRate fps = FrameRate::FPS_25;
-    if (oscFpsCombo_.getSelectedId() == 1) fps = FrameRate::FPS_24;
-    if (oscFpsCombo_.getSelectedId() == 3) fps = FrameRate::FPS_2997;
-    if (oscFpsCombo_.getSelectedId() == 4) fps = FrameRate::FPS_30;
-    const auto bindIp = (oscIpEditor_.getText().trim().isNotEmpty() ? oscIpEditor_.getText().trim()
-                                                                     : parseBindIpFromAdapterLabel (oscAdapterCombo_.getText()));
-    const auto floatVt  = static_cast<bridge::engine::OscValueType> (oscFloatTypeCombo_.getSelectedId() - 1);
-    // Accept both "7.15" and "7,15" by normalising comma to dot before parsing.
-    auto floatMaxRaw = oscFloatMaxEditor_.getText().trim();
-    juce::String floatMaxText;
-    for (int i = 0; i < floatMaxRaw.length(); ++i)
-    {
-        auto ch = floatMaxRaw[i];
-        if (ch == ',')
-            ch = '.';
-        floatMaxText += ch;
-    }
-    const double floatMax = juce::jmax (1.0, floatMaxText.getDoubleValue());
-    bridgeEngine_.startOscInput (juce::jlimit (1, 65535, oscPortEditor_.getText().getIntValue()),
-                                 bindIp,
-                                 fps,
-                                 oscAddrStrEditor_.getText(),
-                                 oscAddrFloatEditor_.getText(),
-                                 floatVt,
-                                 floatMax,
-                                 err);
 
     restartSelectedSource();
 

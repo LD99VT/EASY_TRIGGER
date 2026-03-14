@@ -10,7 +10,7 @@ namespace
 int queryDeviceChannelCount (juce::AudioIODeviceType& type, const juce::String& name, bool wantInputs)
 {
     juce::AudioDeviceManager probeMgr;
-    probeMgr.initialise (wantInputs ? 128 : 0, wantInputs ? 0 : 128, nullptr, false);
+    probeMgr.initialise (0, 0, nullptr, false);
     probeMgr.setCurrentAudioDeviceType (type.getTypeName(), false);
 
     if (auto* currentType = probeMgr.getCurrentDeviceTypeObject())
@@ -54,7 +54,7 @@ juce::Array<AudioChoice> scanAudioDevices (bool wantInputs)
 {
     juce::Array<AudioChoice> result;
     juce::AudioDeviceManager tempMgr;
-    tempMgr.initialise (128, 128, nullptr, false);
+    tempMgr.initialise (0, 0, nullptr, false);
 
     for (auto* type : tempMgr.getAvailableDeviceTypes())
     {

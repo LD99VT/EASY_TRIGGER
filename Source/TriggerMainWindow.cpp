@@ -3338,6 +3338,21 @@ void TriggerContentComponent::evaluateAndFireTriggers()
     const int prevFrames = lastInputFrames_;
     lastInputFrames_ = currentFrames;
 
+    if (currentFrames < prevFrames)
+    {
+        // Treat any backward jump/rewind as a re-arm event: do not fire triggers
+        // while moving backwards, and clear one-shot/range state so they can fire
+        // again when time moves forward through the markers.
+        triggerRangeActive_.clear();
+        currentTriggerKeys_.clear();
+        pendingEndActions_.clear();
+        for (auto& t : triggerRows_)
+            t.connected = false;
+        triggerTable_.updateContent();
+        triggerTable_.repaint();
+        return;
+    }
+
     struct Candidate
     {
         int index { -1 };

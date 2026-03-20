@@ -48,8 +48,14 @@ jobs:
           if (!(Test-Path $exe)) { throw "Release exe not found: $exe" }
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { throw "Inno Setup not found: $iscc" }
-          $vsRoot = "C:\Program Files (x86)\Microsoft Visual Studio\2022"
-          if (!(Test-Path $vsRoot)) { throw "Visual Studio 2022 root not found: $vsRoot" }
+          $vsRoots = @(
+            "C:\Program Files\Microsoft Visual Studio\2022",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022"
+          )
+          $vsRoot = $vsRoots | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($vsRoot)) {
+            throw "Visual Studio 2022 root not found in expected locations: $($vsRoots -join ', ')"
+          }
           $vsEditions = Get-ChildItem $vsRoot -Directory
           $runtimeDir = $vsEditions |
             ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC" } |

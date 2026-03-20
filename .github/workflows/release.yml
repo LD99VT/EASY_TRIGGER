@@ -48,18 +48,21 @@ jobs:
           if (!(Test-Path $exe)) { throw "Release exe not found: $exe" }
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { throw "Inno Setup not found: $iscc" }
-          $redistRoot = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC"
-          if (!(Test-Path $redistRoot)) { throw "MSVC redist root not found: $redistRoot" }
-          $runtimeDir = Get-ChildItem $redistRoot -Directory |
+          $vsRoot = "C:\Program Files (x86)\Microsoft Visual Studio\2022"
+          if (!(Test-Path $vsRoot)) { throw "Visual Studio 2022 root not found: $vsRoot" }
+          $runtimeDir = Get-ChildItem $vsRoot -Directory |
+            ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC" } |
+            Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem $_ -Directory } |
             Sort-Object Name -Descending |
             ForEach-Object { Join-Path $_.FullName "x64\Microsoft.VC143.CRT" } |
             Where-Object { Test-Path $_ } |
             Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($runtimeDir)) { throw "Microsoft.VC143.CRT not found under: $redistRoot" }
-          $vcRedist = Get-ChildItem $redistRoot -Recurse -Filter "vc_redist.x64.exe" -File |
+          if ([string]::IsNullOrWhiteSpace($runtimeDir)) { throw "Microsoft.VC143.CRT not found under any VS 2022 installation in: $vsRoot" }
+          $vcRedist = Get-ChildItem $vsRoot -Recurse -Filter "vc_redist.x64.exe" -File |
             Sort-Object FullName -Descending |
             Select-Object -ExpandProperty FullName -First 1
-          if ([string]::IsNullOrWhiteSpace($vcRedist)) { throw "vc_redist.x64.exe not found under: $redistRoot" }
+          if ([string]::IsNullOrWhiteSpace($vcRedist)) { throw "vc_redist.x64.exe not found under any VS 2022 installation in: $vsRoot" }
           & $iscc "/DVcRuntimeDir=$runtimeDir" "/DVcRedistExe=$vcRedist" installer_trigger.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 

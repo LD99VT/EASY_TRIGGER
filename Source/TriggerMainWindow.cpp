@@ -1,6 +1,10 @@
 #include "TriggerMainWindow.h"
 using trigger::styleCombo;
 using trigger::styleEditor;
+using trigger::styleFlatMenuButton;
+using trigger::styleRowButton;
+using trigger::styleSectionLabel;
+using trigger::styleValueLabel;
 using trigger::styleSlider;
 #include "Version.h"
 #include "core/ConfigStore.h"
@@ -23,23 +27,46 @@ namespace
 juce::Colour clipIdleFillFor (bool isCustom, bool hasOffset, bool included)
 {
     juce::ignoreUnused (isCustom, hasOffset, included);
-    return juce::Colour::fromRGB (0x24, 0x24, 0x24);
+    return kClipIdle;
 }
 
 juce::Colour clipConnectedFillFor (bool isCustom, bool hasOffset)
 {
     if (isCustom)
-        return juce::Colour::fromRGB (0x82, 0x62, 0x62);
+        return kClipConnectedCustom;
 
     if (hasOffset)
-        return juce::Colour::fromRGB (0x42, 0x82, 0x53);
+        return kClipConnectedTc;
 
-    return juce::Colour::fromRGB (0x42, 0x66, 0x82);
+    return kClipConnectedPlain;
 }
 
 juce::FontOptions clipRowFont()
 {
-    return juce::FontOptions (14.0f).withStyle ("Bold");
+    return juce::FontOptions (kTableRowFontSize).withStyle ("Bold");
+}
+
+void tagPopupComponentTree (juce::Component& component, juce::MouseListener& listener, int rowNumber)
+{
+    if (dynamic_cast<juce::TextEditor*> (&component) != nullptr
+        || dynamic_cast<juce::ComboBox*> (&component) != nullptr)
+    {
+        component.getProperties().remove ("triggerRowNumber");
+        component.removeMouseListener (&listener);
+        return;
+    }
+
+    component.getProperties().set ("triggerRowNumber", rowNumber);
+    component.removeMouseListener (&listener);
+    component.addMouseListener (&listener, true);
+
+    for (int i = 0; i < component.getNumChildComponents(); ++i)
+        tagPopupComponentTree (*component.getChildComponent (i), listener, rowNumber);
+}
+
+juce::String diagnosticTimestamp()
+{
+    return juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
 }
 }
 
@@ -121,8 +148,8 @@ void FpsConvertStrip::paint (juce::Graphics& g)
     auto buttonsArea = area;
     const auto inactiveBg = kInput;
     const auto inactiveText = juce::Colour::fromRGB (0xca, 0xca, 0xca);
-    const auto activeBg = kTeal;
-    const auto activeText = kBg;
+    const auto activeBg = kSection;
+    const auto activeText = juce::Colour::fromRGB (0xea, 0xea, 0xea);
     auto font = juce::FontOptions (14.0f);
     font = font.withStyle ("Medium");
 
@@ -177,16 +204,6 @@ namespace
 constexpr int kPlaceholderItemId = 10000;
 constexpr int kCompactBarHeight = 24;
 constexpr int kStartupHeightExtra = 8;
-constexpr int kConfigModeSettings = 1;
-constexpr int kConfigModeClips = 2;
-constexpr int kConfigModeAll = 3;
-
-juce::String configModeKey (int modeId)
-{
-    if (modeId == kConfigModeSettings) return "settings";
-    if (modeId == kConfigModeClips) return "clips";
-    return "all";
-}
 
 juce::String parseBindIpFromAdapterLabel (juce::String text)
 {
@@ -383,34 +400,6 @@ int globalOffsetFramesFromEditor (const juce::TextEditor& editor, int fps)
 }
 
 #if JUCE_WINDOWS
-void applyNativeDarkTitleBar (juce::DocumentWindow& window)
-{
-    auto* peer = window.getPeer();
-    if (peer == nullptr)
-        return;
-
-    auto* hwnd = static_cast<HWND> (peer->getNativeHandle());
-    if (hwnd == nullptr)
-        return;
-
-    auto* dwm = ::LoadLibraryW (L"dwmapi.dll");
-    if (dwm == nullptr)
-        return;
-
-    using DwmSetWindowAttributeFn = HRESULT (WINAPI*) (HWND, DWORD, LPCVOID, DWORD);
-    auto setAttr = reinterpret_cast<DwmSetWindowAttributeFn> (::GetProcAddress (dwm, "DwmSetWindowAttribute"));
-    if (setAttr != nullptr)
-    {
-        const BOOL enabled = TRUE;
-        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-        constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
-        setAttr (hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &enabled, sizeof (enabled));
-        setAttr (hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, &enabled, sizeof (enabled));
-    }
-
-    ::FreeLibrary (dwm);
-}
-
 bool isNativeWindowMaximized (juce::DocumentWindow& window)
 {
     if (auto* peer = window.getPeer())
@@ -494,853 +483,28 @@ juce::Image loadTriggerAppIcon()
     return juce::ImageFileFormat::loadFrom (*in);
 }
 
-juce::File getRuntimePrefsFile()
-{
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("EasyTrigger")
-        .getChildFile ("runtime_prefs.json");
-}
+#include "ui/widgets/TrayIcon.h"
 
-class TriggerTrayIcon final : public juce::SystemTrayIconComponent
-{
-public:
-    explicit TriggerTrayIcon (MainWindow& owner) : owner_ (owner) {}
+#include "ui/widgets/TableCells.h"
 
-    void mouseUp (const juce::MouseEvent& e) override
-    {
-        if (e.mods.isRightButtonDown())
-        {
-            juce::PopupMenu menu;
-            menu.addItem (1, "Show");
-            menu.addSeparator();
-            menu.addItem (2, "Quit");
-            menu.showMenuAsync (juce::PopupMenu::Options(),
-                                [safeOwner = juce::Component::SafePointer<MainWindow> (&owner_)] (int result)
-                                {
-                                    if (safeOwner == nullptr)
-                                        return;
-                                    if (result == 1)
-                                        safeOwner->showFromTray();
-                                    else if (result == 2)
-                                        safeOwner->quitFromTray();
-                                });
-            return;
-        }
+#include "ui/windows/AboutWindow.h"
 
-        owner_.showFromTray();
-    }
 
-private:
-    MainWindow& owner_;
-};
+#include "ui/windows/DarkDialog.h"
 
-class InlineTextCell final : public juce::TextEditor
-{
-public:
-    std::function<void(const juce::String&)> onCommit;
-    InlineTextCell()
-    {
-        setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-        setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-        setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-        setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-        setBorder (juce::BorderSize<int> (0));
-        setIndents (4, 0);
-        setJustification (juce::Justification::centredLeft);
-        onReturnKey = [this] { if (onCommit) onCommit (getText()); };
-        onFocusLost = [this] { if (onCommit) onCommit (getText()); };
-    }
-};
-
-class InlineButtonCell final : public juce::TextButton
-{
-public:
-    std::function<void()> onPress;
-    InlineButtonCell()
-    {
-        onClick = [this] { if (onPress) onPress(); };
-    }
-};
-
-class InlineTestButtonCell final : public juce::Button
-{
-public:
-    std::function<void()> onPress;
-
-    InlineTestButtonCell() : juce::Button ("test")
-    {
-        onClick = [this] { if (onPress) onPress(); };
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    }
-
-    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
-    {
-        auto b = getLocalBounds().toFloat();
-        const float side = juce::jmin (30.0f, juce::jmin (b.getWidth() - 6.0f, b.getHeight() - 6.0f));
-        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (b.getCentre());
-
-        auto fill = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
-        auto stroke = juce::Colour::fromRGB (0x4a, 0x4a, 0x4a);
-        auto icon = juce::Colour::fromRGB (0x90, 0x90, 0x90);
-        if (isHovered) fill = fill.brighter (0.12f);
-        if (isDown) fill = fill.brighter (0.18f);
-
-        g.setColour (fill);
-        g.fillRoundedRectangle (sq, 5.0f);
-        g.setColour (stroke);
-        g.drawRoundedRectangle (sq, 5.0f, 1.0f);
-
-        juce::Path tri;
-        const auto cx = sq.getCentreX();
-        const auto cy = sq.getCentreY();
-        const float w = 7.0f;
-        const float h = 9.0f;
-        tri.startNewSubPath (cx - w * 0.5f, cy - h * 0.5f);
-        tri.lineTo (cx - w * 0.5f, cy + h * 0.5f);
-        tri.lineTo (cx + w * 0.6f, cy);
-        tri.closeSubPath();
-        g.setColour (icon);
-        g.fillPath (tri);
-    }
-};
-
-class InlineDeleteButtonCell final : public juce::Button
-{
-public:
-    std::function<void()> onPress;
-    InlineDeleteButtonCell() : juce::Button ("del")
-    {
-        onClick = [this] { if (onPress) onPress(); };
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    }
-    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
-    {
-        auto b = getLocalBounds().toFloat();
-        const float side = juce::jmin (28.0f, juce::jmin (b.getWidth() - 6.0f, b.getHeight() - 6.0f));
-        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (b.getCentre());
-        auto fill   = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
-        auto stroke  = juce::Colour::fromRGB (0x4a, 0x4a, 0x4a);
-        auto icon    = juce::Colour::fromRGB (0x90, 0x90, 0x90);
-        if (isHovered || isDown)
-        {
-            fill = isDown ? kTeal.darker (0.15f) : kTeal;
-            icon = kBg;
-        }
-        g.setColour (fill);
-        g.fillRoundedRectangle (sq, 5.0f);
-        g.setColour (stroke);
-        g.drawRoundedRectangle (sq, 5.0f, 1.0f);
-        const float cx = sq.getCentreX();
-        const float cy = sq.getCentreY();
-        g.setColour (icon);
-        g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));
-    }
-};
-
-class InlineAddButtonCell final : public juce::Button
-{
-public:
-    std::function<void()> onPress;
-    InlineAddButtonCell() : juce::Button ("add")
-    {
-        onClick = [this] { if (onPress) onPress(); };
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
-    }
-    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
-    {
-        auto b = getLocalBounds().toFloat();
-        const float side = juce::jmin (28.0f, juce::jmin (b.getWidth() - 6.0f, b.getHeight() - 6.0f));
-        auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (b.getCentre());
-        auto fill   = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
-        auto stroke  = juce::Colour::fromRGB (0x4a, 0x4a, 0x4a);
-        auto icon    = juce::Colour::fromRGB (0x90, 0x90, 0x90);
-        if (isHovered || isDown)
-        {
-            fill = isDown ? kTeal.darker (0.15f) : kTeal;
-            icon = kBg;
-        }
-        g.setColour (fill);   g.fillRoundedRectangle (sq, 5.0f);
-        g.setColour (stroke); g.drawRoundedRectangle (sq, 5.0f, 1.0f);
-        const float cx = sq.getCentreX(), cy = sq.getCentreY();
-        g.setColour (icon);
-        g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));
-        g.fillRect (juce::Rectangle<float> (cx - 1.0f, cy - 5.5f,  2.0f, 11.0f));
-    }
-};
-
-// Custom trigger source selector: Col toggle (Col / L/C) + inline number fields
-class InlineCustomTypeCell final : public juce::Component
-{
-public:
-    std::function<void(const juce::String&, const juce::String&, const juce::String&, const juce::String&)> onChanged;
-    // callback params: type("col"/"lc"), sourceCol, sourceLayer, sourceClip
-
-    InlineCustomTypeCell()
-    {
-        addAndMakeVisible (typeBtn_);
-        addAndMakeVisible (field1_);
-        addAndMakeVisible (field2_);
-
-        typeBtn_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
-        typeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-        typeBtn_.onClick = [this]
-        {
-            type_ = (type_ == "col") ? "lc" : "col";
-            applyTypeToUi();
-            emitChanged();
-        };
-
-        auto styleField = [] (juce::TextEditor& e)
-        {
-            e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
-            e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
-            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-            e.setJustification (juce::Justification::centredLeft);
-            e.setBorder (juce::BorderSize<int> (0));
-            e.setIndents (4, 0);
-            e.setFont (juce::FontOptions (13.0f));
-            e.onReturnKey = [&e] { e.giveAwayKeyboardFocus(); };
-        };
-        styleField (field1_);
-        styleField (field2_);
-        field1_.onFocusLost = [this] { emitChanged(); };
-        field2_.onFocusLost = [this] { emitChanged(); };
-    }
-
-    void setState (const juce::String& type, const juce::String& col,
-                   const juce::String& layer, const juce::String& clip)
-    {
-        type_  = (type == "lc") ? "lc" : "col";
-        col_   = col;
-        layer_ = layer;
-        clip_  = clip;
-        field1_.setText (type_ == "col" ? col_ : layer_, juce::dontSendNotification);
-        field2_.setText (clip_, juce::dontSendNotification);
-        applyTypeToUi();
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().reduced (1, 4);
-        typeBtn_.setBounds (r.removeFromLeft (62));
-        r.removeFromLeft (4);
-        if (type_ == "lc")
-        {
-            const int w = juce::jmin (52, juce::jmax (38, (r.getWidth() - 4) / 2));
-            field1_.setBounds (r.removeFromLeft (w));
-            r.removeFromLeft (4);
-            field2_.setBounds (r.removeFromLeft (w));
-        }
-        else
-        {
-            field1_.setBounds (r.removeFromLeft (juce::jmin (66, r.getWidth())));
-            field2_.setBounds (0, 0, 0, 0);
-        }
-    }
-
-private:
-    void applyTypeToUi()
-    {
-        if (type_ == "lc")
-        {
-            typeBtn_.setButtonText ("L/C");
-            field1_.setVisible (true);
-            field2_.setVisible (true);
-        }
-        else
-        {
-            type_ = "col";
-            typeBtn_.setButtonText ("Col");
-            field1_.setVisible (true);
-            field2_.setVisible (false);
-        }
-        resized();
-    }
-
-    void emitChanged()
-    {
-        if (type_ == "col")
-        {
-            col_   = field1_.getText().trim();
-            layer_.clear();
-            clip_.clear();
-        }
-        else
-        {
-            layer_ = field1_.getText().trim();
-            clip_  = field2_.getText().trim();
-            col_.clear();
-        }
-        if (onChanged) onChanged (type_, col_, layer_, clip_);
-    }
-
-    juce::TextButton typeBtn_;
-    juce::TextEditor field1_;
-    juce::TextEditor field2_;
-    juce::String type_  { "col" };
-    juce::String col_, layer_, clip_;
-};
-
-// ─── Generic dark-themed modal dialog ────────────────────────────────────────
-// Self-owning (heap-allocated, deletes itself on close).
-// Usage:  DarkDialog::show ("Title", "Message text", parentComponent);
-class DarkDialog final : public juce::DocumentWindow
-{
-public:
-    static void show (const juce::String& title,
-                      const juce::String& message,
-                      juce::Component*    relativeTo = nullptr,
-                      const juce::String& buttonText = "OK")
-    {
-        new DarkDialog (title, message, buttonText, relativeTo);
-    }
-
-    void closeButtonPressed() override
-    {
-        juce::MessageManager::callAsync (
-            [safe = juce::Component::SafePointer<DarkDialog> (this)]
-            {
-                if (auto* w = safe.getComponent()) delete w;
-            });
-    }
-
-private:
-    DarkDialog (const juce::String& title,
-                const juce::String& message,
-                const juce::String& buttonText,
-                juce::Component*    relativeTo)
-        : juce::DocumentWindow (title,
-                                juce::Colour::fromRGB (0x1e, 0x1e, 0x1e),
-                                juce::DocumentWindow::closeButton)
-    {
-        setUsingNativeTitleBar (true);
-        setResizable (false, false);
-        setContentOwned (new Content (*this, message, buttonText), true);
-        centreWithSize (400, 160);
-        if (relativeTo != nullptr)
-        {
-            const auto rc = relativeTo->getScreenBounds();
-            setBounds (rc.getCentreX() - 200, rc.getCentreY() - 80, 400, 160);
-        }
-        setVisible (true);
-#if JUCE_WINDOWS
-        applyNativeDarkTitleBar (*this);
-        if (auto* hwnd = (HWND) getWindowHandle())
-        {
-            ::SendMessageW (hwnd, WM_SETICON, 0, 0);
-            ::SendMessageW (hwnd, WM_SETICON, 1, 0);
-            constexpr long kGwlStyle = -16;
-            long st = (long) ::GetWindowLongPtrW (hwnd, kGwlStyle);
-            st &= ~(long) 0x00040000L;  // WS_THICKFRAME
-            st &= ~(long) 0x00010000L;  // WS_MAXIMIZEBOX
-            ::SetWindowLongPtrW (hwnd, kGwlStyle, st);
-            ::SetWindowPos (hwnd, nullptr, 0, 0, 0, 0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-        }
-#endif
-        toFront (true);
-    }
-
-    struct Content final : juce::Component
-    {
-        DarkDialog&      owner_;
-        juce::Label      msg_;
-        juce::TextButton btn_;
-
-        Content (DarkDialog& o, const juce::String& message, const juce::String& btnText)
-            : owner_ (o), btn_ (btnText)
-        {
-            msg_.setText (message, juce::dontSendNotification);
-            msg_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe0, 0xe0, 0xe0));
-            msg_.setJustificationType (juce::Justification::centred);
-            addAndMakeVisible (msg_);
-
-            btn_.setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            btn_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            btn_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-            btn_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe1, 0xe6, 0xef));
-            btn_.onClick = [this] { owner_.closeButtonPressed(); };
-            addAndMakeVisible (btn_);
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (juce::Colour::fromRGB (0x17, 0x17, 0x17));
-        }
-
-        void resized() override
-        {
-            constexpr int kPad = 20;
-            msg_.setBounds (kPad, kPad, getWidth() - kPad * 2, getHeight() - 70);
-            btn_.setBounds ((getWidth() - 100) / 2, getHeight() - 42, 100, 32);
-        }
-    };
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DarkDialog)
-};
-
-// ─── Live Trigger Status Monitor window ─────────────────────────────────────
-class StatusMonitorWindow final : public juce::DocumentWindow,
-                                  private juce::Timer
-{
-public:
-    using Getter = std::function<void (juce::Array<juce::String>&, juce::Array<juce::String>&)>;
-
-    StatusMonitorWindow (Getter getter, juce::Component* relativeTo)
-        : juce::DocumentWindow ("Trigger Status Monitor",
-                                juce::Colour::fromRGB (0x1e, 0x1e, 0x1e),
-                                juce::DocumentWindow::closeButton),
-          getter_ (std::move (getter))
-    {
-        setUsingNativeTitleBar (true);
-        setResizable (false, false);
-        setContentOwned (new Content (*this), true);
-        centreWithSize (420, 390);
-        if (relativeTo != nullptr)
-        {
-            const auto rc = relativeTo->getScreenBounds();
-            setBounds (rc.getCentreX() - 210, rc.getCentreY() - 195, 420, 390);
-        }
-        setVisible (true);
-#if JUCE_WINDOWS
-        applyNativeDarkTitleBar (*this);
-        if (auto* hwnd = (HWND) getWindowHandle())
-        {
-            ::SendMessageW (hwnd, WM_SETICON, 0, 0);
-            ::SendMessageW (hwnd, WM_SETICON, 1, 0);
-            constexpr long kGwlStyle = -16;
-            long st = (long) ::GetWindowLongPtrW (hwnd, kGwlStyle);
-            st &= ~(long) 0x00040000L;  // WS_THICKFRAME
-            st &= ~(long) 0x00010000L;  // WS_MAXIMIZEBOX
-            ::SetWindowLongPtrW (hwnd, kGwlStyle, st);
-            ::SetWindowPos (hwnd, nullptr, 0, 0, 0, 0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-        }
-#endif
-        toFront (true);
-        startTimerHz (5);
-    }
-
-    void closeButtonPressed() override { delete this; }
-
-    void timerCallback() override
-    {
-        if (auto* c = dynamic_cast<Content*> (getContentComponent()))
-            c->refresh();
-    }
-
-    void getValues (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals)
-    {
-        getter_ (keys, vals);
-    }
-
-private:
-    Getter getter_;
-
-    static constexpr int kRows = 10;
-
-    struct Content final : juce::Component
-    {
-        StatusMonitorWindow& win_;
-
-        juce::Label keyLbls_[kRows];
-        juce::Label valLbls_[kRows];
-        juce::TextButton ok_ { "OK" };
-
-        explicit Content (StatusMonitorWindow& w) : win_ (w)
-        {
-            const juce::Colour keyCol = juce::Colour::fromRGB (0x84, 0x84, 0x84);
-            const juce::Colour valCol = juce::Colour::fromRGB (0xe0, 0xe0, 0xe0);
-
-            for (int i = 0; i < kRows; ++i)
-            {
-                keyLbls_[i].setFont (juce::FontOptions (12.5f).withStyle ("Bold"));
-                keyLbls_[i].setColour (juce::Label::textColourId, keyCol);
-                keyLbls_[i].setJustificationType (juce::Justification::centredRight);
-                addAndMakeVisible (keyLbls_[i]);
-
-                valLbls_[i].setFont (juce::FontOptions (12.5f));
-                valLbls_[i].setColour (juce::Label::textColourId, valCol);
-                valLbls_[i].setJustificationType (juce::Justification::centredLeft);
-                addAndMakeVisible (valLbls_[i]);
-            }
-
-            ok_.setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            ok_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            ok_.setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-            ok_.setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-            ok_.onClick = [this]
-            {
-                juce::MessageManager::callAsync ([w = &win_] { delete w; });
-            };
-            addAndMakeVisible (ok_);
-
-            refresh();
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (juce::Colour::fromRGB (0x17, 0x17, 0x17));
-        }
-
-        void resized() override
-        {
-            constexpr int kRowH = 30;
-            constexpr int kPad  = 14;
-            constexpr int kKeyW = 120;
-            constexpr int kGap  = 10;
-            const int valW = getWidth() - kPad * 2 - kKeyW - kGap;
-
-            for (int i = 0; i < kRows; ++i)
-            {
-                const int y = kPad + i * kRowH;
-                keyLbls_[i].setBounds (kPad, y, kKeyW, kRowH);
-                valLbls_[i].setBounds (kPad + kKeyW + kGap, y, valW, kRowH);
-            }
-
-            const int btnY = kPad + kRows * kRowH + kPad;
-            ok_.setBounds ((getWidth() - 100) / 2, btnY, 100, 32);
-        }
-
-        void refresh()
-        {
-            juce::Array<juce::String> keys, vals;
-            win_.getValues (keys, vals);
-            for (int i = 0; i < juce::jmin (kRows, keys.size()); ++i)
-            {
-                keyLbls_[i].setText (keys[i], juce::dontSendNotification);
-                valLbls_[i].setText (vals[i], juce::dontSendNotification);
-            }
-        }
-    };
-};
+#include "ui/windows/ColourPickerWindow.h"
 // ─────────────────────────────────────────────────────────────────────────────
 
-class GetClipsOptionsWindow final : public juce::DocumentWindow
-{
-public:
-    using ApplyHandler = std::function<void (bool, bool)>;
+#include "ui/windows/PreferencesWindow.h"
+// ─────────────────────────────────────────────────────────────────────────────
 
-    GetClipsOptionsWindow (bool includeWithOffset,
-                           bool includeWithoutOffset,
-                           ApplyHandler onApply,
-                           juce::Component* relativeTo)
-        : juce::DocumentWindow ("Get Clips",
-                                juce::Colour::fromRGB (0x1e, 0x1e, 0x1e),
-                                juce::DocumentWindow::closeButton),
-          onApply_ (std::move (onApply))
-    {
-        setUsingNativeTitleBar (true);
-        setResizable (false, false);
-        setContentOwned (new Content (*this, includeWithOffset, includeWithoutOffset), true);
-        centreWithSize (360, 190);
-        if (relativeTo != nullptr)
-        {
-            const auto rc = relativeTo->getScreenBounds();
-            setBounds (rc.getCentreX() - 180, rc.getCentreY() - 95, 360, 190);
-        }
-        setVisible (true);
-#if JUCE_WINDOWS
-        applyNativeDarkTitleBar (*this);
-        if (auto* hwnd = (HWND) getWindowHandle())
-        {
-            ::SendMessageW (hwnd, WM_SETICON, 0, 0);
-            ::SendMessageW (hwnd, WM_SETICON, 1, 0);
-            constexpr long kGwlStyle = -16;
-            long st = (long) ::GetWindowLongPtrW (hwnd, kGwlStyle);
-            st &= ~(long) 0x00040000L;
-            st &= ~(long) 0x00010000L;
-            ::SetWindowLongPtrW (hwnd, kGwlStyle, st);
-            ::SetWindowPos (hwnd, nullptr, 0, 0, 0, 0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-        }
-#endif
-        toFront (true);
-    }
+#include "ui/windows/StatusMonitorWindow.h"
+// ─────────────────────────────────────────────────────────────────────────────
 
-    void closeButtonPressed() override
-    {
-        juce::MessageManager::callAsync (
-            [safe = juce::Component::SafePointer<GetClipsOptionsWindow> (this)]
-            {
-                if (auto* w = safe.getComponent()) delete w;
-            });
-    }
-
-    void applySelection (bool includeWithOffset, bool includeWithoutOffset)
-    {
-        if (! includeWithOffset && ! includeWithoutOffset)
-        {
-            DarkDialog::show ("Get Clips", "Select at least one option.", this);
-            return;
-        }
-
-        if (onApply_ != nullptr)
-            onApply_ (includeWithOffset, includeWithoutOffset);
-        closeButtonPressed();
-    }
-
-private:
-    ApplyHandler onApply_;
-
-    struct Content final : juce::Component
-    {
-        GetClipsOptionsWindow& owner_;
-        juce::Label title_ { {}, "Select which clips to import" };
-        juce::ToggleButton withOffset_;
-        juce::ToggleButton withoutOffset_;
-        juce::TextButton apply_ { "Apply" };
-        juce::TextButton cancel_ { "Cancel" };
-
-        Content (GetClipsOptionsWindow& owner, bool includeWithOffset, bool includeWithoutOffset)
-            : owner_ (owner)
-        {
-            title_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe0, 0xe0, 0xe0));
-            title_.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
-            title_.setJustificationType (juce::Justification::centredLeft);
-            addAndMakeVisible (title_);
-
-            withOffset_.setButtonText ("Get Clips with timecode");
-            withoutOffset_.setButtonText ("Get Clips without timecode");
-            withOffset_.setToggleState (includeWithOffset, juce::dontSendNotification);
-            withoutOffset_.setToggleState (includeWithoutOffset, juce::dontSendNotification);
-            addAndMakeVisible (withOffset_);
-            addAndMakeVisible (withoutOffset_);
-
-            for (auto* b : { &apply_, &cancel_ })
-            {
-                b->setColour (juce::TextButton::buttonColourId,   juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-                b->setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-                b->setColour (juce::TextButton::textColourOffId,  juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-                b->setColour (juce::TextButton::textColourOnId,   juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-                addAndMakeVisible (*b);
-            }
-
-            apply_.onClick = [this]
-            {
-                owner_.applySelection (withOffset_.getToggleState(),
-                                       withoutOffset_.getToggleState());
-            };
-            cancel_.onClick = [this] { owner_.closeButtonPressed(); };
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            g.fillAll (juce::Colour::fromRGB (0x17, 0x17, 0x17));
-        }
-
-        void resized() override
-        {
-            auto area = getLocalBounds().reduced (16);
-            title_.setBounds (area.removeFromTop (24));
-            area.removeFromTop (10);
-            withOffset_.setBounds (area.removeFromTop (26));
-            area.removeFromTop (8);
-            withoutOffset_.setBounds (area.removeFromTop (26));
-            area.removeFromTop (18);
-            auto buttons = area.removeFromTop (32);
-            cancel_.setBounds (buttons.removeFromRight (100));
-            buttons.removeFromRight (10);
-            apply_.setBounds (buttons.removeFromRight (100));
-        }
-    };
-};
-
-class InlineEndActionCell final : public juce::Component
-{
-public:
-    std::function<void(const juce::String&, const juce::String&, const juce::String&, const juce::String&)> onChanged;
-
-    InlineEndActionCell()
-    {
-        addAndMakeVisible (modeBtn_);
-        addAndMakeVisible (value1_);
-        addAndMakeVisible (value2_);
-
-        modeBtn_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
-        modeBtn_.setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-        modeBtn_.onClick = [this]
-        {
-            if (mode_ == "off") mode_ = "col";
-            else if (mode_ == "col") mode_ = "lc";
-            else mode_ = "off";
-            applyModeToUi();
-            emitChanged();
-        };
-
-        auto styleEditor = [] (juce::TextEditor& e)
-        {
-            e.setColour (juce::TextEditor::backgroundColourId, juce::Colour::fromRGB (0x24, 0x24, 0x24));
-            e.setColour (juce::TextEditor::outlineColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
-            e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-            e.setJustification (juce::Justification::centredLeft);
-            e.setBorder (juce::BorderSize<int> (0));
-            e.setIndents (4, 0); // 0 top-indent lets centredLeft do vertical centering
-            e.setFont (juce::FontOptions (13.0f));
-            e.onReturnKey = [&e] { e.giveAwayKeyboardFocus(); };
-        };
-        styleEditor (value1_);
-        styleEditor (value2_);
-
-        value1_.onFocusLost = [this] { emitChanged(); };
-        value2_.onFocusLost = [this] { emitChanged(); };
-    }
-
-    void setState (const juce::String& mode, const juce::String& col, const juce::String& layer, const juce::String& clip)
-    {
-        mode_ = mode.isNotEmpty() ? mode : "off";
-        col_ = col;
-        layer_ = layer;
-        clip_ = clip;
-        value1_.setText (mode_ == "col" ? col_ : layer_, juce::dontSendNotification);
-        value2_.setText (clip_, juce::dontSendNotification);
-        applyModeToUi();
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().reduced (1, 4);
-        modeBtn_.setBounds (r.removeFromLeft (62));
-        r.removeFromLeft (4);
-        if (mode_ == "col")
-        {
-            value1_.setBounds (r.removeFromLeft (juce::jmin (66, r.getWidth())));
-            value2_.setBounds (0, 0, 0, 0);
-        }
-        else if (mode_ == "lc")
-        {
-            const int w = juce::jmin (56, juce::jmax (42, (r.getWidth() - 4) / 2));
-            value1_.setBounds (r.removeFromLeft (w));
-            r.removeFromLeft (4);
-            value2_.setBounds (r.removeFromLeft (w));
-        }
-        else
-        {
-            value1_.setBounds (0, 0, 0, 0);
-            value2_.setBounds (0, 0, 0, 0);
-        }
-    }
-
-private:
-    void applyModeToUi()
-    {
-        const auto m = mode_.toLowerCase();
-        if (m == "col")
-        {
-            mode_ = "col";
-            modeBtn_.setButtonText ("Col");
-            value1_.setVisible (true);
-            value2_.setVisible (false);
-        }
-        else if (m == "lc")
-        {
-            mode_ = "lc";
-            modeBtn_.setButtonText ("L/C");
-            value1_.setVisible (true);
-            value2_.setVisible (true);
-        }
-        else
-        {
-            mode_ = "off";
-            modeBtn_.setButtonText ("Off");
-            value1_.setVisible (false);
-            value2_.setVisible (false);
-        }
-        resized();
-    }
-
-    void emitChanged()
-    {
-        if (mode_ == "col")
-        {
-            col_ = value1_.getText().trim();
-            layer_.clear();
-            clip_.clear();
-        }
-        else if (mode_ == "lc")
-        {
-            layer_ = value1_.getText().trim();
-            clip_ = value2_.getText().trim();
-            col_.clear();
-        }
-        else
-        {
-            col_.clear();
-            layer_.clear();
-            clip_.clear();
-        }
-
-        if (onChanged)
-            onChanged (mode_, col_, mode_ == "lc" ? layer_ : juce::String(), mode_ == "lc" ? clip_ : juce::String());
-    }
-
-    juce::TextButton modeBtn_;
-    juce::TextEditor value1_;
-    juce::TextEditor value2_;
-    juce::String mode_ { "off" };
-    juce::String col_;
-    juce::String layer_;
-    juce::String clip_;
-};
+#include "ui/windows/GetClipsOptionsWindow.h"
 }
 
-class TriggerContentComponent::AudioScanThread final : public juce::Thread
-{
-public:
-    explicit AudioScanThread (TriggerContentComponent* owner)
-        : juce::Thread ("TriggerAudioScan"),
-          safeOwner_ (owner)
-    {}
-
-    void run() override
-    {
-        juce::Array<bridge::engine::AudioChoice> inputs, outputs;
-        if (tempManager_ == nullptr)
-            return;
-
-        for (auto* type : tempManager_->getAvailableDeviceTypes())
-        {
-            if (threadShouldExit() || type == nullptr)
-                return;
-
-            const auto typeName = type->getTypeName();
-            type->scanForDevices();
-
-            for (const auto& name : type->getDeviceNames (true))
-            {
-                bridge::engine::AudioChoice choice;
-                choice.typeName = typeName;
-                choice.deviceName = name;
-                choice.displayName = AudioDeviceEntry::makeDisplayName (typeName, name);
-                inputs.add (choice);
-            }
-
-            for (const auto& name : type->getDeviceNames (false))
-            {
-                bridge::engine::AudioChoice choice;
-                choice.typeName = typeName;
-                choice.deviceName = name;
-                choice.displayName = AudioDeviceEntry::makeDisplayName (typeName, name);
-                outputs.add (choice);
-            }
-        }
-
-        if (threadShouldExit())
-            return;
-
-        auto safe = safeOwner_;
-        juce::MessageManager::callAsync ([safe, inputs, outputs]()
-        {
-            if (auto* owner = safe.getComponent())
-                owner->onAudioScanComplete (inputs, outputs);
-        });
-    }
-
-    std::unique_ptr<juce::AudioDeviceManager> tempManager_;
-
-private:
-    juce::Component::SafePointer<TriggerContentComponent> safeOwner_;
-};
+#include "ui/workers/AudioScanThread.h"
 
 TriggerContentComponent::TriggerContentComponent()
 {
@@ -1398,8 +562,8 @@ TriggerContentComponent::TriggerContentComponent()
         &inDriverLbl_, &inDeviceLbl_, &inChannelLbl_, &inRateLbl_, &inLevelLbl_, &inGainLbl_,
         &mtcInLbl_, &artInLbl_, &artInListenIpLbl_, &oscAdapterLbl_, &oscIpLbl_, &oscPortLbl_, &oscFpsLbl_, &oscStrLbl_, &oscFloatLbl_, &oscFloatTypeLbl_, &oscFloatMaxLbl_,
         &outDriverLbl_, &outDeviceLbl_, &outChannelLbl_, &outRateLbl_, &outConvertLbl_, &outOffsetLbl_, &outLevelLbl_,
-        &resAdapterLbl_, &resSendIpLbl_, &resSendIpLbl2_, &resSendIpLbl3_, &resSendIpLbl4_, &resSendIpLbl5_,
-        &resSendAdapterLbl1_, &resSendAdapterLbl2_, &resSendAdapterLbl3_, &resSendAdapterLbl4_, &resSendAdapterLbl5_,
+        &resAdapterLbl_, &resSendIpLbl_, &resSendIpLbl2_, &resSendIpLbl3_, &resSendIpLbl4_, &resSendIpLbl5_, &resSendIpLbl6_, &resSendIpLbl7_, &resSendIpLbl8_,
+        &resSendAdapterLbl1_, &resSendAdapterLbl2_, &resSendAdapterLbl3_, &resSendAdapterLbl4_, &resSendAdapterLbl5_, &resSendAdapterLbl6_, &resSendAdapterLbl7_, &resSendAdapterLbl8_,
         &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_, &resGlobalOffsetLbl_
     };
     for (auto* l : sourceRowLabels)
@@ -1428,6 +592,9 @@ TriggerContentComponent::TriggerContentComponent()
     styleCombo (resolumeSendAdapterCombo3_);
     styleCombo (resolumeSendAdapterCombo4_);
     styleCombo (resolumeSendAdapterCombo5_);
+    styleCombo (resolumeSendAdapterCombo6_);
+    styleCombo (resolumeSendAdapterCombo7_);
+    styleCombo (resolumeSendAdapterCombo8_);
     styleCombo (oscFpsCombo_);
     styleCombo (ltcOutDeviceCombo_);
     styleCombo (ltcOutChannelCombo_);
@@ -1478,7 +645,7 @@ TriggerContentComponent::TriggerContentComponent()
     styleSlider (ltcOutLevelSlider_, true);
 
     for (auto* c : { &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &oscAdapterCombo_, &mtcInCombo_, &artnetInCombo_, &oscFpsCombo_,
-                     &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_ })
+                     &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_ })
     {
         leftViewportContent_.addAndMakeVisible (*c);
         c->onChange = [this] { onInputSettingsChanged(); };
@@ -1535,7 +702,7 @@ TriggerContentComponent::TriggerContentComponent()
 
     sourceCombo_.onChange = [this]
     {
-        restartSelectedSource();
+        onInputSettingsChanged();   // starts/stops inputs for the newly selected source
         updateWindowHeight();
         resized();
         repaint();
@@ -1563,7 +730,10 @@ TriggerContentComponent::TriggerContentComponent()
     resSendIpLbl3_.setText ("Send 3:", juce::dontSendNotification);
     resSendIpLbl4_.setText ("Send 4:", juce::dontSendNotification);
     resSendIpLbl5_.setText ("Send 5:", juce::dontSendNotification);
-    for (auto* b : { &resolumeSendExpandBtn1_, &resolumeSendExpandBtn2_, &resolumeSendExpandBtn3_, &resolumeSendExpandBtn4_, &resolumeSendExpandBtn5_ })
+    resSendIpLbl6_.setText ("Send 6:", juce::dontSendNotification);
+    resSendIpLbl7_.setText ("Send 7:", juce::dontSendNotification);
+    resSendIpLbl8_.setText ("Send 8:", juce::dontSendNotification);
+    for (auto* b : { &resolumeSendExpandBtn1_, &resolumeSendExpandBtn2_, &resolumeSendExpandBtn3_, &resolumeSendExpandBtn4_, &resolumeSendExpandBtn5_, &resolumeSendExpandBtn6_, &resolumeSendExpandBtn7_, &resolumeSendExpandBtn8_ })
         b->setColours (input_, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a), juce::Colour::fromRGB (0xf2, 0xf2, 0xf2));
     resolumeSendIp2_.setText ("127.0.0.1");
     resolumeSendPort2_.setText ("7000");
@@ -1573,8 +743,14 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeSendPort4_.setText ("7000");
     resolumeSendIp5_.setText ("127.0.0.1");
     resolumeSendPort5_.setText ("7000");
+    resolumeSendIp6_.setText ("127.0.0.1");
+    resolumeSendPort6_.setText ("7000");
+    resolumeSendIp7_.setText ("127.0.0.1");
+    resolumeSendPort7_.setText ("7000");
+    resolumeSendIp8_.setText ("127.0.0.1");
+    resolumeSendPort8_.setText ("7000");
     resListenIpLbl_.setText ("Listen:", juce::dontSendNotification);
-    for (auto* e : { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ })
+    for (auto* e : { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_, &resolumeSendPort6_, &resolumeSendPort7_, &resolumeSendPort8_ })
         e->setInputRestrictions (5, "0123456789");
     resolumeListenIp_.setText ("127.0.0.1");
     resolumeListenPort_.setText ("7001");
@@ -1586,30 +762,45 @@ TriggerContentComponent::TriggerContentComponent()
     resolumeDelTargetBtn3_.onClick = [this] { removeResolumeSendTarget (2); };
     resolumeDelTargetBtn4_.onClick = [this] { removeResolumeSendTarget (3); };
     resolumeDelTargetBtn5_.onClick = [this] { removeResolumeSendTarget (4); };
+    resolumeDelTargetBtn6_.onClick = [this] { removeResolumeSendTarget (5); };
+    resolumeDelTargetBtn7_.onClick = [this] { removeResolumeSendTarget (6); };
+    resolumeDelTargetBtn8_.onClick = [this] { removeResolumeSendTarget (7); };
     resolumeAdapterCombo_.onChange = [this] { syncResolumeListenIpWithAdapter(); };
     resolumeSendExpandBtn1_.onClick = [this] { toggleSendAdapterExpanded (0); };
     resolumeSendExpandBtn2_.onClick = [this] { toggleSendAdapterExpanded (1); };
     resolumeSendExpandBtn3_.onClick = [this] { toggleSendAdapterExpanded (2); };
     resolumeSendExpandBtn4_.onClick = [this] { toggleSendAdapterExpanded (3); };
     resolumeSendExpandBtn5_.onClick = [this] { toggleSendAdapterExpanded (4); };
+    resolumeSendExpandBtn6_.onClick = [this] { toggleSendAdapterExpanded (5); };
+    resolumeSendExpandBtn7_.onClick = [this] { toggleSendAdapterExpanded (6); };
+    resolumeSendExpandBtn8_.onClick = [this] { toggleSendAdapterExpanded (7); };
     resolumeSendExpandBtn1_.setExpanded (resolumeSendExpanded1_);
     resolumeSendExpandBtn2_.setExpanded (resolumeSendExpanded2_);
     resolumeSendExpandBtn3_.setExpanded (resolumeSendExpanded3_);
     resolumeSendExpandBtn4_.setExpanded (resolumeSendExpanded4_);
     resolumeSendExpandBtn5_.setExpanded (resolumeSendExpanded5_);
+    resolumeSendExpandBtn6_.setExpanded (resolumeSendExpanded6_);
+    resolumeSendExpandBtn7_.setExpanded (resolumeSendExpanded7_);
+    resolumeSendExpandBtn8_.setExpanded (resolumeSendExpanded8_);
     getTriggersBtn_.onClick = [this] { openGetClipsOptions(); };
     createCustomBtn_.onClick = [this]
     {
-        if (! hasCustomGroup())
-            addCustomColTrigger();
-        createCustomBtn_.setEnabled (! hasCustomGroup());
+        addCustomColTrigger();
+        createCustomBtn_.setEnabled (! hasCustomGroupsAtLimit());
     };
+    styleFlatMenuButton (fileMenuBtn_);
+    manageMenuBtn_.setButtonText ("Manage Triggers");
+    styleFlatMenuButton (manageMenuBtn_);
+    styleFlatMenuButton (viewMenuBtn_);
+    styleFlatMenuButton (helpMenuBtn_);
+    fileMenuBtn_.onClick = [this] { openFileMenu(); };
+    manageMenuBtn_.onClick = [this] { openManageMenu(); };
+    viewMenuBtn_.onClick = [this] { openViewMenu(); };
+    helpMenuBtn_.onClick = [this] { openHelpMenu(); };
     resolumeExpandBtn_.setExpanded (false);
     helpButton_.onClick = [this] { openHelpPage(); };
     resolumeExpandBtn_.onClick = [this] { resolumeExpanded_ = ! resolumeExpanded_; resolumeExpandBtn_.setExpanded (resolumeExpanded_); updateWindowHeight(); resized(); repaint(); };
-    triggerOutHeaderLabel_.setColour (juce::Label::backgroundColourId, row_);
-    triggerOutHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-    triggerOutHeaderLabel_.setFont (juce::FontOptions (14.0f));
+    styleSectionLabel (triggerOutHeaderLabel_);
     triggerOutHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     triggerOutHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 6, 0, 0));
     triggerOutExpandBtn_.setExpanded (false);
@@ -1621,9 +812,7 @@ TriggerContentComponent::TriggerContentComponent()
         resized();
         repaint();
     };
-    outLtcHeaderLabel_.setColour (juce::Label::backgroundColourId, row_);
-    outLtcHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-    outLtcHeaderLabel_.setFont (juce::FontOptions (14.0f));
+    styleSectionLabel (outLtcHeaderLabel_);
     outLtcHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     outLtcHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 42, 0, 0));
     leftViewportContent_.addAndMakeVisible (outLtcHeaderLabel_);
@@ -1639,18 +828,12 @@ TriggerContentComponent::TriggerContentComponent()
     };
     leftViewportContent_.addAndMakeVisible (ltcOutSwitch_);
     leftViewportContent_.addAndMakeVisible (ltcThruDot_);
-    ltcThruLbl_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
+    ltcThruLbl_.setColour (juce::Label::textColourId, kTextSecondary);
     ltcThruLbl_.setJustificationType (juce::Justification::centredLeft);
     leftViewportContent_.addAndMakeVisible (ltcThruLbl_);
-    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-    settingsButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    styleRowButton (settingsButton_, kRow);
     settingsButton_.onClick = [this] { openSettingsMenu(); };
-    quitButton_.setColour (juce::TextButton::buttonColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
-    quitButton_.setColour (juce::TextButton::buttonOnColourId, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
-    quitButton_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    quitButton_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    styleRowButton (quitButton_, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
     quitButton_.onClick = [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
     {
         if (safe == nullptr)
@@ -1671,15 +854,16 @@ TriggerContentComponent::TriggerContentComponent()
     triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
     triggerTable_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, row_);
     auto& h = triggerTable_.getHeader();
-    h.addColumn ("",           1,  40,  30);
-    h.addColumn ("In",         2,  46,  34);
-    h.addColumn ("Name",       3, 260,  90);
-    h.addColumn ("Count",      4, 110,  92);
-    h.addColumn ("Range",      5,  70,  58);
-    h.addColumn ("Trigger",    6, 110,  92);
-    h.addColumn ("Duration",   7, 110,  92);
-    h.addColumn ("End Action", 8, 180,  72);  // dynamic min enforced in tableColumnsResized
-    h.addColumn ("Test",       9,  56,  56, 56, juce::TableHeaderComponent::notResizable);
+    h.addColumn ("",           1,  30,  30);
+    h.addColumn ("In",         2,  34,  34);
+    h.addColumn ("Name",       3, 150, 150);
+    h.addColumn ("Count",      4,  92,  92);
+    h.addColumn ("Range",      5,  58,  58);
+    h.addColumn ("Trigger",    6,  92,  92);
+    h.addColumn ("Duration",   7,  92,  92);
+    h.addColumn ("End Action", 8, 110, 110);  // dynamic min enforced in tableColumnsResized
+    h.addColumn ("Send",       9,  84,  84);
+    h.addColumn ("Test",      10,  56,  56, 56, juce::TableHeaderComponent::notResizable);
     h.addListener (this);
     h.setStretchToFitActive (false);
     h.setColour (juce::TableHeaderComponent::backgroundColourId, juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
@@ -1690,23 +874,68 @@ TriggerContentComponent::TriggerContentComponent()
         if (safe == nullptr)
             return;
         safe->queryPending_ = false;
-        juce::MessageManager::callAsync ([safe]
+        const auto nowMs = juce::Time::currentTimeMillis();
+
+        if (safe->clipReceiveEnabled_)
         {
-            // Only rebuild rows while a query is active (clipReceiveEnabled_).
-            // This prevents Resolume OSC feedback from custom triggers
-            // recreating clip rows after the user has cleared them.
-            if (safe != nullptr && safe->clipReceiveEnabled_)
-                safe->refreshTriggerRows();
-        });
+            safe->clipRefreshQueued_ = true;
+            safe->clipRefreshDueMs_ = nowMs + 120;
+            safe->clipImportQuietUntilMs_ = nowMs + 350;
+        }
+        else
+        {
+            safe->clipFeedbackDirty_ = true;
+            safe->clipFeedbackDueMs_ = nowMs + 16;
+        }
+    };
+
+    clipCollector_.onRawMessage = [this] (const juce::OSCMessage& msg)
+    {
+        lastOscInMs_ = juce::Time::currentTimeMillis();
+        lastOscInPort_ = resolumeListenPort_.getText().getIntValue();
+        oscListenOk_ = true;
+        oscListenState_ = "ok";
+        oscListenDetail_ = "listening " + resolumeListenIp_.getText().trim()
+            + ":" + juce::String (juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()));
+        updateNetworkStatusIndicator();
+
+        if (clipReceiveEnabled_ && rawOscDiagnosticLogsRemaining_ > 0)
+        {
+            --rawOscDiagnosticLogsRemaining_;
+            logGetClipsDiagnostic ("OSC IN " + msg.getAddressPattern().toString());
+        }
+        else if (clipReceiveEnabled_ && ! rawOscDiagnosticSuppressedLogged_)
+        {
+            rawOscDiagnosticSuppressedLogged_ = true;
+            logGetClipsDiagnostic ("OSC IN logging suppressed to keep app responsive");
+        }
+        OscLogEntry e;
+        e.dir         = OscLogEntry::Dir::input;
+        e.timestampMs = juce::Time::currentTimeMillis();
+        e.ip          = resolumeListenIp_.getText().trim();
+        e.port        = resolumeListenPort_.getText().getIntValue();
+        e.address     = msg.getAddressPattern().toString();
+        if (msg.size() > 0)
+        {
+            if      (msg[0].isInt32())   { e.type = "i32"; e.value = juce::String (msg[0].getInt32()); }
+            else if (msg[0].isFloat32()) { e.type = "f32"; e.value = juce::String (msg[0].getFloat32(), 4); }
+            else if (msg[0].isString())  { e.type = "str"; e.value = msg[0].getString(); }
+            else                         { e.type = "..."; }
+        }
+        else
+        {
+            e.type = "bang";
+        }
+        oscLog_.push (std::move (e));
     };
 
     addAndMakeVisible (easyLabel_);
     addAndMakeVisible (triggerLabel_);
     addAndMakeVisible (versionLabel_);
-    addAndMakeVisible (helpButton_);
     addAndMakeVisible (tcLabel_);
     addAndMakeVisible (*fpsIndicatorStrip_);
     addAndMakeVisible (resolumeStatusLabel_);
+    addAndMakeVisible (networkStatusLabel_);
     addAndMakeVisible (statusLabel_);
     leftViewportContent_.addAndMakeVisible (resolumeHeader_);
     leftViewportContent_.addAndMakeVisible (resolumeExpandBtn_);
@@ -1718,11 +947,17 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (resSendIpLbl3_);
     leftViewportContent_.addAndMakeVisible (resSendIpLbl4_);
     leftViewportContent_.addAndMakeVisible (resSendIpLbl5_);
+    leftViewportContent_.addAndMakeVisible (resSendIpLbl6_);
+    leftViewportContent_.addAndMakeVisible (resSendIpLbl7_);
+    leftViewportContent_.addAndMakeVisible (resSendIpLbl8_);
     leftViewportContent_.addAndMakeVisible (resSendAdapterLbl1_);
     leftViewportContent_.addAndMakeVisible (resSendAdapterLbl2_);
     leftViewportContent_.addAndMakeVisible (resSendAdapterLbl3_);
     leftViewportContent_.addAndMakeVisible (resSendAdapterLbl4_);
     leftViewportContent_.addAndMakeVisible (resSendAdapterLbl5_);
+    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl6_);
+    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl7_);
+    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl8_);
     leftViewportContent_.addAndMakeVisible (resSendPortLbl_);
     leftViewportContent_.addAndMakeVisible (resListenIpLbl_);
     leftViewportContent_.addAndMakeVisible (resListenPortLbl_);
@@ -1739,16 +974,28 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (resolumeSendPort4_);
     leftViewportContent_.addAndMakeVisible (resolumeSendIp5_);
     leftViewportContent_.addAndMakeVisible (resolumeSendPort5_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp6_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort6_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp7_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort7_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendIp8_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendPort8_);
     leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn1_);
     leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn2_);
     leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn3_);
     leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn4_);
     leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn5_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn6_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn7_);
+    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn8_);
     leftViewportContent_.addAndMakeVisible (resolumeAddTargetBtn_);
     leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn2_);
     leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn3_);
     leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn4_);
     leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn5_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn6_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn7_);
+    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn8_);
     leftViewportContent_.addAndMakeVisible (resolumeListenIp_);
     leftViewportContent_.addAndMakeVisible (resolumeListenPort_);
     leftViewportContent_.addAndMakeVisible (resolumeMaxLayers_);
@@ -1756,8 +1003,10 @@ TriggerContentComponent::TriggerContentComponent()
     leftViewportContent_.addAndMakeVisible (resolumeGlobalOffset_);
     addAndMakeVisible (getTriggersBtn_);
     addAndMakeVisible (createCustomBtn_);
-    addAndMakeVisible (settingsButton_);
-    addAndMakeVisible (quitButton_);
+    addAndMakeVisible (fileMenuBtn_);
+    addAndMakeVisible (manageMenuBtn_);
+    addAndMakeVisible (viewMenuBtn_);
+    addAndMakeVisible (helpMenuBtn_);
     addAndMakeVisible (triggerTable_);
     if (auto* vp = triggerTable_.getViewport())
         vp->setScrollBarsShown (true, false);
@@ -1765,6 +1014,7 @@ TriggerContentComponent::TriggerContentComponent()
     setSize (1240, 820);
     resized();
     setResolumeStatusText ("Resolume idle", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+    setNetworkStatusText ("OSC idle", juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
     setTimecodeStatusText ("SAFE START", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     loadRuntimePrefs();
     startAudioDeviceScan();
@@ -1773,6 +1023,13 @@ TriggerContentComponent::TriggerContentComponent()
 
 TriggerContentComponent::~TriggerContentComponent()
 {
+    // Close status monitor first so its OscLog* pointer is never dangling
+    if (auto* mon = statusMonitor_.getComponent())
+        delete mon;
+
+    if (auto* prefs = preferencesWindow_.getComponent())
+        delete prefs;
+
     {
         const std::lock_guard<std::mutex> lock (ltcOutputApplyMutex_);
         ltcOutputApplyExit_ = true;
@@ -1806,18 +1063,22 @@ int TriggerContentComponent::calcHeightForState (bool sourceExpanded, int source
         return showMax ? 8 : 7;
     };
 
-    const int triggerOutRows = juce::jlimit (1, 5, resolumeSendTargetCount_)
+    const int triggerOutRows = juce::jlimit (1, 8, resolumeSendTargetCount_)
                              + (resolumeSendExpanded1_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 2 && resolumeSendExpanded2_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 3 && resolumeSendExpanded3_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 4 && resolumeSendExpanded4_ ? 1 : 0)
-                             + (resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_ ? 1 : 0);
+                             + (resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 6 && resolumeSendExpanded6_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 7 && resolumeSendExpanded7_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 8 && resolumeSendExpanded8_ ? 1 : 0);
     const int resolumeRows = 5;
 
     int h = 16;
     h += 40 + 4;
     h += 90;
     h += 4 + kCompactBarHeight + 4;
+    h += 24 + 4;
     h += 40 + 4;
     if (sourceExpanded)
         h += rowsForSource() * (40 + 4);
@@ -1830,13 +1091,13 @@ int TriggerContentComponent::calcHeightForState (bool sourceExpanded, int source
     h += 40 + 4;
     if (outLtcExpanded)
         h += 7 * (40 + 4);
-    h += 132;
+    h += 88;
     h += 24;
     h += kStartupHeightExtra;
     return juce::jlimit (420, 1400, h);
 }
 
-void TriggerContentComponent::updateWindowHeight()
+void TriggerContentComponent::updateWindowHeight (bool forceGrow)
 {
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
     {
@@ -1852,12 +1113,12 @@ void TriggerContentComponent::updateWindowHeight()
         const int minContent = calcPreferredHeight();
         const int minTotal = minContent + chrome;
 
-        constexpr int kBaseMinW  = 1160;
+        constexpr int kBaseMinW  = 1284;  // left(390)+overhead(34)+cols_min(793)+test(56)+scroll+pad(10)
         constexpr int kCustomExtraW = 184 + 42;
         const int minW = kBaseMinW + (hasCustomGroup() ? kCustomExtraW : 0);
         window->setResizeLimits (minW, minTotal, 1800, 1400);
 
-        if (window->getHeight() < minTotal)
+        if (forceGrow && window->getHeight() < minTotal)
             window->setSize (window->getWidth(), minTotal);
     }
 }
@@ -1867,9 +1128,9 @@ void TriggerContentComponent::paint (juce::Graphics& g)
     g.fillAll (bg_);
     if (! headerRect_.isEmpty())
     {
-        g.setColour (juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+        g.setColour (kHeader);
         g.fillRoundedRectangle (headerRect_.toFloat(), 5.0f);
-        g.setColour (juce::Colour::fromRGB (0x3c, 0x3e, 0x42));
+        g.setColour (kWindowBorder);
         g.drawRoundedRectangle (headerRect_.toFloat(), 5.0f, 1.0f);
     }
     if (! timerRect_.isEmpty())
@@ -1879,15 +1140,16 @@ void TriggerContentComponent::paint (juce::Graphics& g)
         g.setColour (juce::Colour::fromRGB (0x33, 0x33, 0x33));
         g.drawRoundedRectangle (timerRect_.toFloat(), 5.0f, 1.0f);
     }
+    juce::ignoreUnused (menuBarRect_);
     {
         juce::Graphics::ScopedSaveState savedState (g);
         auto clip = leftViewportRect_;
         g.reduceClipRegion (clip);
         const auto viewPos = leftViewport_.getViewPosition();
-        g.setColour (juce::Colour::fromRGB (0x65, 0x65, 0x65));
+        g.setColour (kSection);
         for (auto r : sectionRowRects_)
             g.fillRoundedRectangle (r.translated (clip.getX() - viewPos.x, clip.getY() - viewPos.y).toFloat(), 5.0f);
-        g.setColour (juce::Colour::fromRGB (0x3a, 0x3a, 0x3a));
+        g.setColour (kRow);
         for (auto r : leftRowRects_)
             g.fillRoundedRectangle (r.translated (clip.getX() - viewPos.x, clip.getY() - viewPos.y).toFloat(), 5.0f);
     }
@@ -1899,10 +1161,28 @@ void TriggerContentComponent::paint (juce::Graphics& g)
     {
         g.setColour (row_);
         g.fillRect (statusBarRect_);
-        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
+        g.setColour (kRowOutline);
         g.drawLine ((float) statusBarRect_.getX(), (float) statusBarRect_.getY(),
                     (float) statusBarRect_.getRight(), (float) statusBarRect_.getY(), 1.0f);
     }
+}
+
+void TriggerContentComponent::paintOverChildren (juce::Graphics& g)
+{
+    if (! dragActive_ || dragHoverRow_ < 0)
+        return;
+
+    auto rowBounds = triggerTable_.getRowPosition (dragHoverRow_, true);
+    if (rowBounds.isEmpty())
+        return;
+
+    const int y = rowBounds.getY();
+    g.setColour (kStatusOk);
+    g.fillRoundedRectangle (juce::Rectangle<float> ((float) rowBounds.getX() + 8.0f,
+                                                    (float) y + 1.0f,
+                                                    (float) rowBounds.getWidth() - 16.0f,
+                                                    3.0f),
+                            1.5f);
 }
 
 void TriggerContentComponent::resized()
@@ -1911,36 +1191,58 @@ void TriggerContentComponent::resized()
     sectionRowRects_.clear();
     rightSectionRects_.clear();
     headerRect_ = {};
+    menuBarRect_ = {};
     timerRect_ = {};
     auto bounds = getLocalBounds();
     statusBarRect_ = bounds.removeFromBottom (24);
     statusLeftRect_ = statusBarRect_;
+    statusCenterRect_ = {};
     statusRightRect_ = {};
     if (! statusBarRect_.isEmpty())
     {
-        statusRightRect_ = statusLeftRect_.removeFromRight (juce::jmax (260, statusBarRect_.getWidth() / 2));
+        const int rightW = juce::jmax (220, statusBarRect_.getWidth() / 4);
+        const int centerW = juce::jmax (320, statusBarRect_.getWidth() / 3);
+        const int centerX = statusBarRect_.getCentreX() - centerW / 2;
+
+        statusCenterRect_ = juce::Rectangle<int> (centerX,
+                                                  statusBarRect_.getY(),
+                                                  juce::jmin (centerW, statusBarRect_.getWidth()),
+                                                  statusBarRect_.getHeight());
+
+        statusRightRect_ = juce::Rectangle<int> (statusBarRect_.getRight() - rightW,
+                                                 statusBarRect_.getY(),
+                                                 rightW,
+                                                 statusBarRect_.getHeight());
+
+        statusLeftRect_ = juce::Rectangle<int> (statusBarRect_.getX(),
+                                                statusBarRect_.getY(),
+                                                juce::jmax (0, statusCenterRect_.getX() - statusBarRect_.getX()),
+                                                statusBarRect_.getHeight());
     }
     auto content = bounds.reduced (8);
+    menuBarRect_ = content.removeFromTop (24);
+    content.removeFromTop (4);
     const int totalW = content.getWidth();
     int leftW = juce::jlimit (330, 390, (int) std::round ((double) totalW * 0.40));
     if (totalW - leftW < 420)
         leftW = juce::jmax (300, totalW - 420);
+    // Never let the left panel consume the entire width – keep at least 300 px for the table
+    leftW = juce::jmin (leftW, juce::jmax (0, totalW - 300));
     auto left = content.removeFromLeft (leftW);
     auto right = content.reduced (6, 0);
 
     headerRect_ = left.removeFromTop (40);
     auto top = headerRect_.reduced (6, 0);
-    auto help = top.removeFromRight (28);
-    helpButton_.setBounds (help.withSizeKeepingCentre (28, 28));
+    const int versionW = juce::jmax (58, versionLabel_.getFont().getStringWidth (versionLabel_.getText()) + 4);
+    auto versionArea = top.removeFromRight (versionW);
     const int easyW = juce::jmax (46, easyLabel_.getFont().getStringWidth ("EASY ") + 6);
     const int trigW = juce::jmax (90, triggerLabel_.getFont().getStringWidth ("TRIGGER") + 6);
-    const int versionW = juce::jmax (58, versionLabel_.getFont().getStringWidth (versionLabel_.getText()) + 4);
     const int startX = top.getX() + 2;
     const int yOff = 6;
     const int titleH = juce::jmax (1, top.getHeight() - yOff);
     easyLabel_.setBounds (startX, top.getY() + yOff, easyW, titleH);
     triggerLabel_.setBounds (startX + easyW, top.getY() + yOff, trigW, titleH);
-    versionLabel_.setBounds (startX + easyW + trigW + 2, top.getY() + yOff, versionW, titleH);
+    versionLabel_.setBounds (versionArea.getX(), top.getY() + yOff, versionW, titleH);
     left.removeFromTop (4);
     timerRect_ = left.removeFromTop (90);
     tcLabel_.setBounds (timerRect_);
@@ -1950,9 +1252,7 @@ void TriggerContentComponent::resized()
         fpsIndicatorStrip_->setBounds (fpsRect);
     left.removeFromTop (4);
 
-    auto footerArea = left.removeFromBottom (132);
-    auto actionRow = footerArea.removeFromBottom (40);
-    footerArea.removeFromBottom (4);
+    auto footerArea = left.removeFromBottom (88);
     auto createCustomRow = footerArea.removeFromBottom (40);
     footerArea.removeFromBottom (4);
     auto getTriggersRow = footerArea.removeFromBottom (40);
@@ -1967,12 +1267,15 @@ void TriggerContentComponent::resized()
         if (src == 3) return 2;
         return oscFloatTypeCombo_.getSelectedId() == 3 ? 8 : 7;
     };
-    const int triggerOutRows = juce::jlimit (1, 5, resolumeSendTargetCount_)
+    const int triggerOutRows = juce::jlimit (1, 8, resolumeSendTargetCount_)
                              + (resolumeSendExpanded1_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 2 && resolumeSendExpanded2_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 3 && resolumeSendExpanded3_ ? 1 : 0)
                              + (resolumeSendTargetCount_ >= 4 && resolumeSendExpanded4_ ? 1 : 0)
-                             + (resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_ ? 1 : 0);
+                             + (resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 6 && resolumeSendExpanded6_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 7 && resolumeSendExpanded7_ ? 1 : 0)
+                             + (resolumeSendTargetCount_ >= 8 && resolumeSendExpanded8_ ? 1 : 0);
     const int resolumeRows = 5;
     const int contentRows = 1 + (sourceExpanded_ ? rowsForSource() : 0)
                           + 1 + (resolumeExpanded_ ? resolumeRows : 0)
@@ -2160,6 +1463,9 @@ void TriggerContentComponent::resized()
         layoutTriggerTargetRow (resSendIpLbl3_, resolumeSendExpandBtn3_, resolumeSendIp3_, resolumeSendPort3_, resSendAdapterLbl3_, resolumeSendAdapterCombo3_, resolumeDelTargetBtn3_, resolumeSendExpanded3_, resolumeSendTargetCount_ >= 3);
         layoutTriggerTargetRow (resSendIpLbl4_, resolumeSendExpandBtn4_, resolumeSendIp4_, resolumeSendPort4_, resSendAdapterLbl4_, resolumeSendAdapterCombo4_, resolumeDelTargetBtn4_, resolumeSendExpanded4_, resolumeSendTargetCount_ >= 4);
         layoutTriggerTargetRow (resSendIpLbl5_, resolumeSendExpandBtn5_, resolumeSendIp5_, resolumeSendPort5_, resSendAdapterLbl5_, resolumeSendAdapterCombo5_, resolumeDelTargetBtn5_, resolumeSendExpanded5_, resolumeSendTargetCount_ >= 5);
+        layoutTriggerTargetRow (resSendIpLbl6_, resolumeSendExpandBtn6_, resolumeSendIp6_, resolumeSendPort6_, resSendAdapterLbl6_, resolumeSendAdapterCombo6_, resolumeDelTargetBtn6_, resolumeSendExpanded6_, resolumeSendTargetCount_ >= 6);
+        layoutTriggerTargetRow (resSendIpLbl7_, resolumeSendExpandBtn7_, resolumeSendIp7_, resolumeSendPort7_, resSendAdapterLbl7_, resolumeSendAdapterCombo7_, resolumeDelTargetBtn7_, resolumeSendExpanded7_, resolumeSendTargetCount_ >= 7);
+        layoutTriggerTargetRow (resSendIpLbl8_, resolumeSendExpandBtn8_, resolumeSendIp8_, resolumeSendPort8_, resSendAdapterLbl8_, resolumeSendAdapterCombo8_, resolumeDelTargetBtn8_, resolumeSendExpanded8_, resolumeSendTargetCount_ >= 8);
     }
 
     auto ltcHeader = nextRow();
@@ -2201,7 +1507,7 @@ void TriggerContentComponent::resized()
             &ltcInDriverCombo_, &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &ltcInLevelBar_, &ltcInGainSlider_,
             &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_, &oscFloatTypeCombo_, &oscFloatMaxEditor_,
             &ltcOutDriverCombo_, &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_, &ltcConvertStrip_, &ltcOffsetEditor_, &ltcOutLevelSlider_,
-            &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_
+            &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_
         };
         for (auto* c : comps)
             if (c != nullptr)
@@ -2276,6 +1582,9 @@ void TriggerContentComponent::resized()
     resSendIpLbl3_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 3);
     resSendIpLbl4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4);
     resSendIpLbl5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5);
+    resSendIpLbl6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
+    resSendIpLbl7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
+    resSendIpLbl8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
     resSendPortLbl_.setVisible (false);
     resolumeSendIp_.setVisible (triggerOutExpanded_);
     resolumeSendPort_.setVisible (triggerOutExpanded_);
@@ -2287,38 +1596,68 @@ void TriggerContentComponent::resized()
     resolumeSendPort4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4);
     resolumeSendIp5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5);
     resolumeSendPort5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5);
+    resolumeSendIp6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
+    resolumeSendPort6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
+    resolumeSendIp7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
+    resolumeSendPort7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
+    resolumeSendIp8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
+    resolumeSendPort8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
     resolumeSendExpandBtn1_.setVisible (triggerOutExpanded_);
     resolumeSendExpandBtn2_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 2);
     resolumeSendExpandBtn3_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 3);
     resolumeSendExpandBtn4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4);
     resolumeSendExpandBtn5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5);
+    resolumeSendExpandBtn6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
+    resolumeSendExpandBtn7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
+    resolumeSendExpandBtn8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
     resSendAdapterLbl1_.setVisible (triggerOutExpanded_ && resolumeSendExpanded1_);
     resSendAdapterLbl2_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 2 && resolumeSendExpanded2_);
     resSendAdapterLbl3_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 3 && resolumeSendExpanded3_);
     resSendAdapterLbl4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4 && resolumeSendExpanded4_);
     resSendAdapterLbl5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_);
+    resSendAdapterLbl6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6 && resolumeSendExpanded6_);
+    resSendAdapterLbl7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7 && resolumeSendExpanded7_);
+    resSendAdapterLbl8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8 && resolumeSendExpanded8_);
     resolumeSendAdapterCombo1_.setVisible (triggerOutExpanded_ && resolumeSendExpanded1_);
     resolumeSendAdapterCombo2_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 2 && resolumeSendExpanded2_);
     resolumeSendAdapterCombo3_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 3 && resolumeSendExpanded3_);
     resolumeSendAdapterCombo4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4 && resolumeSendExpanded4_);
     resolumeSendAdapterCombo5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5 && resolumeSendExpanded5_);
-    resolumeAddTargetBtn_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ < 5);
+    resolumeSendAdapterCombo6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6 && resolumeSendExpanded6_);
+    resolumeSendAdapterCombo7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7 && resolumeSendExpanded7_);
+    resolumeSendAdapterCombo8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8 && resolumeSendExpanded8_);
+    resolumeAddTargetBtn_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ < 8);
     resolumeDelTargetBtn2_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 2);
     resolumeDelTargetBtn3_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 3);
     resolumeDelTargetBtn4_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 4);
     resolumeDelTargetBtn5_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 5);
+    resolumeDelTargetBtn6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
+    resolumeDelTargetBtn7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
+    resolumeDelTargetBtn8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
 
     getTriggersBtn_.setBounds (getTriggersRow);
     getTriggersBtn_.setVisible (true);
     createCustomBtn_.setBounds (createCustomRow);
     createCustomBtn_.setVisible (true);
-    createCustomBtn_.setEnabled (! hasCustomGroup());
+    createCustomBtn_.setEnabled (! hasCustomGroupsAtLimit());
 
-    auto buttons = actionRow;
-    settingsButton_.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
-    quitButton_.setBounds (buttons.reduced (1, 0));
+    auto menuButtons = menuBarRect_;
+    menuButtons.reduce (0, 0);
+    const int menuGap = 2;
+    const auto menuButtonWidth = [] (const juce::TextButton& button)
+    {
+        return juce::jmax (42, juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")).getStringWidth (button.getButtonText()) + 18);
+    };
+    fileMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (fileMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    manageMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (manageMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    viewMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (viewMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    helpMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (helpMenuBtn_)));
 
     resolumeStatusLabel_.setBounds (statusLeftRect_.reduced (8, 0));
+    networkStatusLabel_.setBounds (statusCenterRect_.reduced (8, 0));
     statusLabel_.setBounds (statusRightRect_.reduced (8, 0));
 
     rightSectionRects_.add (right);
@@ -2328,21 +1667,40 @@ void TriggerContentComponent::resized()
     easyLabel_.toFront (false);
     triggerLabel_.toFront (false);
     versionLabel_.toFront (false);
-    helpButton_.toFront (false);
     tcLabel_.toFront (false);
     if (fpsIndicatorStrip_ != nullptr)
         fpsIndicatorStrip_->toFront (false);
     getTriggersBtn_.toFront (false);
     createCustomBtn_.toFront (false);
-    settingsButton_.toFront (false);
-    quitButton_.toFront (false);
+    fileMenuBtn_.toFront (false);
+    manageMenuBtn_.toFront (false);
+    viewMenuBtn_.toFront (false);
+    helpMenuBtn_.toFront (false);
     resolumeStatusLabel_.toFront (false);
+    networkStatusLabel_.toFront (false);
     statusLabel_.toFront (false);
     leftViewport_.toBack();
 }
 
 void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+    {
+        if (auto* source = event.eventComponent)
+        {
+            auto* tagged = source;
+            while (tagged != nullptr)
+            {
+                if (tagged->getProperties().contains ("triggerRowNumber"))
+                {
+                    showRowContextMenu ((int) tagged->getProperties()["triggerRowNumber"]);
+                    return;
+                }
+                tagged = tagged->getParentComponent();
+            }
+        }
+    }
+
     if (statusBarRect_.contains (event.getPosition()))
         openStatusMonitorWindow();
 }
@@ -2351,13 +1709,15 @@ void TriggerContentComponent::updateTableColumnWidths()
 {
     auto& h = triggerTable_.getHeader();
     constexpr int kTableScrollbarW = 8;
-    constexpr int kCustomColsW = 184 + 42;   // cols 10, 11 fixed widths
+    constexpr int kCustomColsW = 42;         // only the delete col (11) is fixed; Custom Trigger scales
+    constexpr int kTestColW    = 56;         // Test col is always fixed
+    const bool hasCustom = h.getIndexOfColumnId (11, false) >= 0;
+    const int  testColId = hasCustom ? 12 : 10;
     int available = triggerTable_.getWidth();
     available -= kTableScrollbarW;
     available -= 2;
-    // If custom columns (10-12) are present they are fixed-width; subtract them
-    // so cols 1-9 only fill the remaining portion and the custom cols stay visible.
-    if (h.getIndexOfColumnId (10, false) >= 0)
+    available -= kTestColW;  // Test col excluded from scaling
+    if (hasCustom)
         available -= kCustomColsW;
     available = juce::jmax (200, available);
 
@@ -2368,19 +1728,10 @@ void TriggerContentComponent::updateTableColumnWidths()
         int min;
     };
 
-    // Adaptive minimum for End Action column:
-    //   off  → button(62) + margins(2) + padding          = ~72px
-    //   col  → button(62) + gap(4) + field(50) + margins  = ~120px
-    //   lc   → button(62) + gap(4) + f1(42) + gap(4) + f2(42) + margins = ~160px
-    int endActionMin = 72;
-    for (const auto& clip : triggerRows_)
-    {
-        if (clip.isCustom) continue;
-        if (clip.endActionMode == "lc")  { endActionMin = 160; break; }
-        if (clip.endActionMode == "col")   endActionMin = 120;
-    }
+    // End Action: Set button (36) + gap (4) + info label (~70)
+    constexpr int endActionMin = 110;
 
-    std::array<Col, 9> cols {{
+    std::vector<Col> cols {
         { 1,  34,  30 },           // arrow
         { 2,  38,  34 },           // in
         { 3, 186, 150 },           // name
@@ -2388,16 +1739,19 @@ void TriggerContentComponent::updateTableColumnWidths()
         { 5,  64,  58 },           // range
         { 6,  98,  92 },           // trigger  – timecode
         { 7,  98,  92 },           // duration – timecode
-        { 8, 160, endActionMin },  // end action – adaptive per mode
-        { 9,  48,  44 }            // test
-    }};
+        { 8, 165, endActionMin },  // end action – Set + info
+        { 9,  88,  80 }            // send
+    };
+    if (hasCustom)
+        cols.push_back ({ 10, 180, 110 });  // Custom Trigger – Set + summary
+    // Test col set separately – not included in scaling
 
     int baseSum = 0;
     for (const auto& c : cols)
         baseSum += c.base;
     const double scale = (double) available / (double) baseSum;
 
-    std::array<int, 9> widths {};
+    std::vector<int> widths (cols.size(), 0);
     int used = 0;
     for (size_t i = 0; i < cols.size(); ++i)
     {
@@ -2406,7 +1760,7 @@ void TriggerContentComponent::updateTableColumnWidths()
         used += w;
     }
 
-    // Keep Test column fixed-looking; absorb delta mostly into Name.
+    // Keep Send/Test compact-looking; absorb delta mostly into Name.
     const size_t nameIdx = 2; // column id 3
     const size_t endIdx = 7;  // column id 8
     int delta = available - used;
@@ -2432,30 +1786,50 @@ void TriggerContentComponent::updateTableColumnWidths()
 
     for (size_t i = 0; i < cols.size(); ++i)
         h.setColumnWidth (cols[i].id, widths[i]);
+
+    h.setColumnWidth (testColId, kTestColW);
 }
 
 void TriggerContentComponent::addCustomColumns()
 {
     auto& h = triggerTable_.getHeader();
     if (h.getIndexOfColumnId (10, false) >= 0)
-        return; // already present
+    {
+        if (h.getIndexOfColumnId (12, false) >= 0)
+            return; // already present
+        h.removeColumn (10);
+    }
     const int f = juce::TableHeaderComponent::notResizable;
-    h.addColumn ("Custom Trigger", 10, 184, 184, 184, f);
+    h.addColumn ("Custom Trigger", 10, 180, 110, 600);  // resizable, min = Set+summary
     h.addColumn ("",               11,  42,  42,  42, f);
+    h.addColumn ("Test",           12,  56,  56,  56, juce::TableHeaderComponent::notResizable);
 
-    constexpr int kExtraW = 184 + 42;
+    // Move Custom Trigger and its delete button to right after Name (index 2 → positions 3,4)
+    h.moveColumn (10, 3);
+    h.moveColumn (11, 4);
+
+    constexpr int kExtraW  = 184 + 42;
+    constexpr int kMinW    = 1440;  // left(390)+overhead(34)+cols_min(738)+test(56)+custom(152)+scroll(10)+buffer(60)
     if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
-        w->setSize (juce::jmin (1800, w->getWidth() + kExtraW), w->getHeight());
+    {
+        const int newW = juce::jmax (juce::jmin (1800, w->getWidth() + kExtraW), kMinW);
+        w->setSize (newW, w->getHeight());
+    }
 }
 
 void TriggerContentComponent::removeCustomColumns()
 {
-    constexpr int kExtraW = 184 + 42;
     auto& h = triggerTable_.getHeader();
+    if (h.getIndexOfColumnId (12, false) < 0)
+        return;
+
+    constexpr int kExtraW = 184 + 42;
     h.removeColumn (10);
     h.removeColumn (11);
+    h.removeColumn (12);
+    h.addColumn ("Test", 10, 56, 56, 56, juce::TableHeaderComponent::notResizable);
     if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
-        w->setSize (juce::jmax (1160, w->getWidth() - kExtraW), w->getHeight());
+        w->setSize (juce::jmax (1284, w->getWidth() - kExtraW), w->getHeight());
 }
 
 void TriggerContentComponent::tableColumnsResized (juce::TableHeaderComponent*)
@@ -2476,20 +1850,19 @@ void TriggerContentComponent::tableColumnsResized (juce::TableHeaderComponent*)
     enforceMin (6, 92);   // trigger
     enforceMin (7, 92);   // duration
 
-    // Adaptive minimum for End Action based on current clip modes
-    int endMin = 72;
-    for (const auto& clip : triggerRows_)
-    {
-        if (clip.endActionMode == "lc")  { endMin = 160; break; }
-        if (clip.endActionMode == "col")   endMin = 120;
-    }
-    enforceMin (8, endMin);
+    // End Action: Set + info label
+    enforceMin (8, 110);
+    // Custom Trigger: Set + summary (when present)
+    if (h.getIndexOfColumnId (10, false) >= 0 && h.getIndexOfColumnId (11, false) >= 0)
+        enforceMin (10, 110);
 
     colWidthGuard_ = false;
 }
 
 void TriggerContentComponent::timerCallback()
 {
+    const auto nowMs = juce::Time::currentTimeMillis();
+
     bridgeEngine_.setLtcInputGain (dbToLinearGain (ltcInGainSlider_.getValue()));
     bridgeEngine_.setLtcOutputGain (dbToLinearGain (ltcOutLevelSlider_.getValue()));
     bridgeEngine_.setOffsets (offsetFromEditor (ltcOffsetEditor_), 0, 0);
@@ -2533,9 +1906,37 @@ void TriggerContentComponent::timerCallback()
     evaluateAndFireTriggers();
     processEndActions();
 
-    if (queryPending_ && (juce::Time::currentTimeMillis() - queryStartMs_) > 3000)
+    if (clipRefreshQueued_ && nowMs >= clipRefreshDueMs_)
+    {
+        clipRefreshQueued_ = false;
+        refreshTriggerRows();
+    }
+
+    if (clipFeedbackDirty_ && nowMs >= clipFeedbackDueMs_)
+    {
+        clipFeedbackDirty_ = false;
+        syncTriggerRowFeedbackFromCollector();
+    }
+
+    if (clipReceiveEnabled_ && ! queryPending_ && clipImportQuietUntilMs_ > 0 && nowMs >= clipImportQuietUntilMs_)
+    {
+        clipReceiveEnabled_ = false;
+        clipImportQuietUntilMs_ = 0;
+        logGetClipsDiagnostic ("Get Clips import settled; live OSC feedback will no longer rebuild rows");
+    }
+
+    if (queryPending_ && (nowMs - queryStartMs_) > 3000)
     {
         queryPending_ = false;
+        clipReceiveEnabled_ = false;
+        clipRefreshQueued_ = false;
+        clipImportQuietUntilMs_ = 0;
+        oscListenOk_ = false;
+        oscListenState_ = "error";
+        oscListenDetail_ = "no reply on port " + juce::String (juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()))
+            + " (possible firewall / Resolume output mismatch)";
+        updateNetworkStatusIndicator();
+        logGetClipsDiagnostic ("Get Clips timeout: no OSC reply within 3000 ms");
         DarkDialog::show ("Easy Trigger",
                           "Could not receive clips from Resolume.\n"
                           "Please check IP address and port settings.",
@@ -2568,6 +1969,7 @@ void TriggerContentComponent::timerCallback()
                            st.hasInputTc ? juce::Colour::fromRGB (0x51, 0xc8, 0x7b)
                                          : juce::Colour::fromRGB (0xec, 0x48, 0x3c));
     setResolumeStatusText (resolumeStatus, juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
+    updateNetworkStatusIndicator();
 }
 
 int TriggerContentComponent::getNumRows()
@@ -2577,6 +1979,7 @@ int TriggerContentComponent::getNumRows()
 
 void TriggerContentComponent::paintRowBackground (juce::Graphics& g, int row, int width, int height, bool selected)
 {
+    juce::ignoreUnused (selected);
     if (! juce::isPositiveAndBelow (row, (int) displayRows_.size()))
         return;
     const auto& dr = displayRows_[(size_t) row];
@@ -2594,26 +1997,20 @@ void TriggerContentComponent::paintRowBackground (juce::Graphics& g, int row, in
         const auto& clip = triggerRows_[(size_t) dr.clipIndex];
         const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
         juce::Colour fill;
-        if (! clip.include)
-        {
-            fill = clipIdleFillFor (clip.isCustom, clip.hasOffset, false);
-        }
-        else if (fired)
-        {
-            fill = juce::Colour::fromRGB (0xce, 0x9c, 0x00);
-        }
-        else if (clip.connected)
-        {
-            fill = clipConnectedFillFor (clip.isCustom, clip.hasOffset);
-        }
+        if (fired)
+            fill = kClipFired;
         else
-        {
-            fill = clipIdleFillFor (clip.isCustom, clip.hasOffset, true);
-        }
+            fill = clipIdleFillFor (clip.isCustom, clip.hasOffset, clip.include);
 
         auto rr = juce::Rectangle<float> (0.0f, 1.0f, (float) width, (float) juce::jmax (0, height - 2));
         g.setColour (fill);
         g.fillRoundedRectangle (rr, 5.0f);
+        if (! fired && (clip.connected || clip.testHighlight))
+        {
+            const auto borderColour = clipConnectedFillFor (clip.isCustom, clip.hasOffset).brighter (0.7f);
+            g.setColour (borderColour);
+            g.drawRoundedRectangle (rr.reduced (1.0f), 5.0f, 2.0f);
+        }
         return;
     }
     else
@@ -2667,9 +2064,9 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         else if (columnId == 2)
         {
             auto b = juce::Rectangle<float> (12.0f, 10.0f, 20.0f, (float) height - 20.0f).withSizeKeepingCentre (20.0f, 20.0f);
-            g.setColour (juce::Colour::fromRGB (0x8b, 0x8b, 0x8b));
+            g.setColour (kArrowCollapsed);
             g.drawEllipse (b, 1.4f);
-            g.setColour (juce::Colour::fromRGB (0x24, 0x24, 0x24));
+            g.setColour (kInput);
             g.fillEllipse (b.reduced (1.6f));
             if (enabled)
             {
@@ -2681,7 +2078,7 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         else if (columnId == 3)
         {
             // Custom group header: name rendered by InlineTextCell component in refreshComponentForCell
-            if (dr.layer == 0) return;
+            if (trigger::model::isCustomLayer (dr.layer)) return;
             // Filter out Resolume default names: "", "#", "Layer #", "Layer #N"
             auto isCustomName = [] (const juce::String& s) -> bool
             {
@@ -2694,8 +2091,8 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
             text = layerName.isNotEmpty() ? layerName : ("Layer " + juce::String (dr.layer));
         }
 
-        g.setColour (enabled ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0) : juce::Colour::fromRGB (0xa3, 0xa3, 0xa3));
-        g.setFont (juce::FontOptions (13.0f).withStyle ("bold"));
+        g.setColour (enabled ? kTextPrimary : juce::Colour::fromRGB (0xa3, 0xa3, 0xa3));
+        g.setFont (juce::FontOptions (kGroupHeaderFontSize).withStyle ("bold"));
         g.drawText (text, 6, 0, width - 8, height, juce::Justification::centredLeft, true);
         return;
     }
@@ -2715,21 +2112,19 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
             const auto badgeText = hasTc ? juce::String ("TC") : juce::String ("C");
             auto badge = juce::Rectangle<float> (6.0f, 0.0f, (float) width - 12.0f, (float) height)
                              .withSizeKeepingCentre (22.0f, 22.0f);
-            g.setColour ((fired || it.connected) ? juce::Colour::fromRGB (0x18, 0x18, 0x18)
-                                                 : juce::Colour::fromRGB (0x50, 0x50, 0x50));
+            g.setColour (fired ? kTextDarkActive : kBadgeBorder);
             g.drawRoundedRectangle (badge, 3.0f, 1.0f);
-            g.setColour ((fired || it.connected) ? juce::Colour::fromRGB (0x18, 0x18, 0x18)
-                                                 : juce::Colour::fromRGB (0xc8, 0xc8, 0xc8));
-            g.setFont (juce::FontOptions (11.0f).withStyle ("Bold"));
+            g.setColour (fired ? kTextDarkActive : juce::Colour::fromRGB (0xc8, 0xc8, 0xc8));
+            g.setFont (juce::FontOptions (kBadgeFontSize).withStyle ("Bold"));
             g.drawFittedText (badgeText, badge.getSmallestIntegerContainer(), juce::Justification::centred, 1);
             return;
         }
         case 2:
         {
             auto b = juce::Rectangle<float> (12.0f, 10.0f, 20.0f, (float) height - 20.0f).withSizeKeepingCentre (20.0f, 20.0f);
-            g.setColour (juce::Colour::fromRGB (0x8b, 0x8b, 0x8b));
+            g.setColour (kArrowCollapsed);
             g.drawEllipse (b, 1.4f);
-            g.setColour (juce::Colour::fromRGB (0x24, 0x24, 0x24));
+            g.setColour (kInput);
             g.fillEllipse (b.reduced (1.6f));
             if (it.include)
             {
@@ -2746,16 +2141,21 @@ void TriggerContentComponent::paintCell (juce::Graphics& g, int row, int columnI
         case 8: text = ""; break;
         case 9: text = "";
             break;
+        case 10: text = "";
+            break;
+        case 11: text = "";
+            break;
+        case 12: text = "";
+            break;
         default: break;
     }
     juce::Colour textColour = juce::Colours::white.withAlpha (0.9f);
     if (columnId == 4)
     {
         const bool fired = (currentTriggerKeys_.find ({ it.layer, it.clip }) != currentTriggerKeys_.end());
-        if (! it.include) textColour = juce::Colour::fromRGB (0x58, 0x58, 0x60);
-        else if (fired)        textColour = juce::Colour::fromRGB (0x20, 0x14, 0x00);
-        else if (it.connected) textColour = juce::Colour::fromRGB (0x18, 0x18, 0x18);
-        else                   textColour = juce::Colour::fromRGB (0xe0, 0xe0, 0xe0);
+        if (! it.include) textColour = kTextDisabled;
+        else if (fired)    textColour = kTextAmberDark;
+        else               textColour = kTextPrimary;
     }
     g.setColour (textColour);
     g.setFont (clipRowFont());
@@ -2767,46 +2167,97 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
     if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size()))
         return nullptr;
     const auto& dr = displayRows_[(size_t) rowNumber];
+    auto withPopup = [this, rowNumber] (juce::Component* component) -> juce::Component*
+    {
+        if (component != nullptr)
+            tagPopupComponentTree (*component, static_cast<juce::Component&> (*this), rowNumber);
+        return component;
+    };
     if (dr.isGroup)
     {
-        if (dr.layer == 0)
+        if (trigger::model::isCustomLayer (dr.layer))
         {
-            // Custom group header: col 10 = [+] add, col 11 = [-] del group
+            const int groupId = trigger::model::groupIdFromLayer (dr.layer);
+            const auto* group = findCustomGroupById (groupId);
+            if (group == nullptr)
+                return nullptr;
+
             if (columnId == 10)
             {
                 auto* btn = dynamic_cast<InlineAddButtonCell*> (existing);
-                if (btn == nullptr) btn = new InlineAddButtonCell();
-                btn->onPress = [this] { addCustomColTrigger(); };
-                return btn;
+                if (btn == nullptr) { if (existing != nullptr) existing->setVisible (false); btn = new InlineAddButtonCell(); }
+                btn->onPress = [this, groupId] { addCustomColTriggerToGroup (groupId); };
+                return withPopup (btn);
             }
             if (columnId == 11)
             {
                 auto* btn = dynamic_cast<InlineDeleteButtonCell*> (existing);
-                if (btn == nullptr) btn = new InlineDeleteButtonCell();
-                btn->onPress = [this] { deleteCustomGroup(); };
-                return btn;
+                if (btn == nullptr) { if (existing != nullptr) existing->setVisible (false); btn = new InlineDeleteButtonCell(); }
+                btn->onPress = [this, groupId] { deleteCustomGroup (groupId); };
+                return withPopup (btn);
             }
-            // Col 3: editable custom group name
             if (columnId == 3)
             {
                 auto* ed = dynamic_cast<InlineTextCell*> (existing);
-                if (ed == nullptr) ed = new InlineTextCell();
-                const bool enabled = layerEnabled_[0];
-                const juce::Colour textCol = enabled
-                    ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0)
-                    : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
+                if (ed == nullptr) { if (existing != nullptr) existing->setVisible (false); ed = new InlineTextCell(); }
+                const bool enabled = layerEnabled_[dr.layer];
+                const juce::Colour textCol = enabled ? kTextPrimary
+                                                     : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
                 ed->applyColourToAllText (textCol, true);
-                ed->applyFontToAllText (juce::Font (juce::FontOptions (13.0f).withStyle ("bold")), true);
-                ed->setText (customGroupName_, juce::dontSendNotification);
-                ed->onCommit = [this] (const juce::String& v)
+                ed->applyFontToAllText (juce::Font (juce::FontOptions (kGroupHeaderFontSize).withStyle ("bold")), true);
+                ed->setText (group->name, juce::dontSendNotification);
+                ed->onCommit = [this, groupId] (const juce::String& v)
                 {
-                    customGroupName_ = v.trim().isNotEmpty() ? v.trim() : juce::String ("Custom Trigger");
+                    if (auto* target = findCustomGroupById (groupId))
+                    {
+                        target->name = v.trim().isNotEmpty() ? v.trim()
+                                                             : juce::String ("Custom Group " + juce::String (groupId));
+                        for (auto& clip : triggerRows_)
+                            if (clip.isCustom && clip.customGroupId == groupId)
+                                clip.layerName = target->name;
+                    }
                     triggerTable_.repaint();
                 };
-                return ed;
+                return withPopup (ed);
             }
-            // Col 5 (Range) falls through; all other cols hide stale components
-            if (columnId != 5)
+            if (columnId == 9)
+            {
+                auto* combo = dynamic_cast<InlineSendTargetCell*> (existing);
+                if (combo == nullptr) { if (existing != nullptr) existing->setVisible (false); combo = new InlineSendTargetCell(); }
+                bool hasAny = false;
+                int sharedIndex = 0;
+                for (const auto& clip : triggerRows_)
+                {
+                    if (clip.layer != dr.layer)
+                        continue;
+                    if (! hasAny)
+                    {
+                        sharedIndex = clip.sendTargetIndex;
+                        hasAny = true;
+                    }
+                    else if (clip.sendTargetIndex != sharedIndex)
+                    {
+                        sharedIndex = 0;
+                        break;
+                    }
+                }
+                combo->setChoices (juce::jlimit (1, 8, resolumeSendTargetCount_), clampSendTargetIndex (sharedIndex));
+                combo->onSelectionChanged = [this, rowNumber] (int selectedId)
+                {
+                    if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                    const auto& dr2 = displayRows_[(size_t) rowNumber];
+                    if (! dr2.isGroup) return;
+                    const int sendIndex = clampSendTargetIndex (selectedId - 1);
+                    for (auto& c : triggerRows_)
+                        if (c.layer == dr2.layer)
+                            c.sendTargetIndex = sendIndex;
+                    triggerTable_.updateContent();
+                    triggerTable_.repaint();
+                };
+                return withPopup (combo);
+            }
+            // Col 5 (Range) and col 8 (End Action) fall through; all other cols hide stale components
+            if (columnId != 5 && columnId != 8)
             {
                 if (existing != nullptr) existing->setVisible (false);
                 return nullptr;
@@ -2818,13 +2269,15 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             // Editable Range field on the group header row — syncs to all clips in the layer
             auto* ed = dynamic_cast<InlineTextCell*> (existing);
             if (ed == nullptr)
+            {
+                if (existing != nullptr) existing->setVisible (false);
                 ed = new InlineTextCell();
+            }
 
             const bool enabled = layerEnabled_[dr.layer];
-            const juce::Colour textCol = enabled
-                ? juce::Colour::fromRGB (0xe0, 0xe0, 0xe0)
-                : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
-            const juce::Font cellFont (juce::FontOptions (13.0f).withStyle ("Bold"));
+            const juce::Colour textCol = enabled ? kTextPrimary
+                                                 : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
+            const juce::Font cellFont (juce::FontOptions (kGroupHeaderFontSize).withStyle ("Bold"));
             ed->applyColourToAllText (textCol, true);
             ed->applyFontToAllText (cellFont, true);
 
@@ -2845,7 +2298,104 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 triggerTable_.updateContent();
                 triggerTable_.repaint();
             };
-            return ed;
+            return withPopup (ed);
+        }
+
+        if (columnId == 9)
+        {
+            auto* combo = dynamic_cast<InlineSendTargetCell*> (existing);
+            if (combo == nullptr) { if (existing != nullptr) existing->setVisible (false); combo = new InlineSendTargetCell(); }
+            bool hasAny = false;
+            int sharedIndex = 0;
+            for (const auto& clip : triggerRows_)
+            {
+                if (clip.layer != dr.layer)
+                    continue;
+                if (! hasAny)
+                {
+                    sharedIndex = clip.sendTargetIndex;
+                    hasAny = true;
+                }
+                else if (clip.sendTargetIndex != sharedIndex)
+                {
+                    sharedIndex = 0;
+                    break;
+                }
+            }
+            combo->setChoices (juce::jlimit (1, 8, resolumeSendTargetCount_), clampSendTargetIndex (sharedIndex));
+            combo->onSelectionChanged = [this, rowNumber] (int selectedId)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                const auto& dr2 = displayRows_[(size_t) rowNumber];
+                if (! dr2.isGroup) return;
+                const int sendIndex = clampSendTargetIndex (selectedId - 1);
+                for (auto& c : triggerRows_)
+                    if (c.layer == dr2.layer)
+                        c.sendTargetIndex = sendIndex;
+                triggerTable_.updateContent();
+                triggerTable_.repaint();
+            };
+            return withPopup (combo);
+        }
+
+        if (columnId == 8)
+        {
+            auto* cell = dynamic_cast<InlineEndActionCell*> (existing);
+            if (cell == nullptr) { if (existing != nullptr) existing->setVisible (false); cell = new InlineEndActionCell(); }
+
+            // Detect shared End Action state across all clips in this layer
+            juce::String sharedMode, sharedCol, sharedLayer, sharedClip;
+            bool hasAny = false, mixed = false;
+            for (const auto& c : triggerRows_)
+            {
+                if (c.layer != dr.layer) continue;
+                const juce::String thisLayer = c.endActionMode == "gc" ? c.endActionGroup : c.endActionLayer;
+                if (!hasAny)
+                {
+                    sharedMode  = c.endActionMode;
+                    sharedCol   = c.endActionCol;
+                    sharedLayer = thisLayer;
+                    sharedClip  = c.endActionClip;
+                    hasAny = true;
+                }
+                else if (c.endActionMode != sharedMode || c.endActionCol != sharedCol ||
+                         thisLayer != sharedLayer || c.endActionClip != sharedClip)
+                {
+                    mixed = true;
+                    break;
+                }
+            }
+            juce::String groupTitle;
+            for (const auto& c : triggerRows_)
+                if (c.layer == dr.layer) { groupTitle = c.layerName; break; }
+
+            if (mixed || !hasAny)
+                cell->setState ({}, {}, {}, {}, groupTitle);
+            else
+                cell->setState (sharedMode, sharedCol, sharedLayer, sharedClip, groupTitle);
+
+            cell->onChanged = [this, rowNumber] (const juce::String& mode,
+                                                 const juce::String& col,
+                                                 const juce::String& layer,
+                                                 const juce::String& clipValue)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                const auto& dr2 = displayRows_[(size_t) rowNumber];
+                if (! dr2.isGroup) return;
+                for (auto& c : triggerRows_)
+                {
+                    if (c.layer != dr2.layer) continue;
+                    c.endActionMode  = mode;
+                    c.endActionCol   = (mode == "lc") ? juce::String() : col;
+                    c.endActionGroup = (mode == "gc") ? layer : juce::String();
+                    c.endActionLayer = (mode == "lc") ? layer : juce::String();
+                    c.endActionClip  = (mode == "lc") ? clipValue : juce::String();
+                }
+                updateTableColumnWidths();
+                triggerTable_.updateContent();
+                triggerTable_.repaint();
+            };
+            return withPopup (cell);
         }
 
         // For all other group-row columns, hide any stale clip-row component and remove it
@@ -2858,14 +2408,34 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
         return nullptr;
 
     auto& clip = triggerRows_[(size_t) dr.clipIndex];
+    const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
+
+    if (columnId == 9)
+    {
+        auto* combo = dynamic_cast<InlineSendTargetCell*> (existing);
+        if (combo == nullptr)
+        {
+            if (existing != nullptr) existing->setVisible (false);
+            combo = new InlineSendTargetCell();
+        }
+        combo->setChoices (juce::jlimit (1, 8, resolumeSendTargetCount_), clampSendTargetIndex (clip.sendTargetIndex));
+        combo->onSelectionChanged = [this, rowNumber] (int selectedId)
+        {
+            if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+            auto dr2 = displayRows_[(size_t) rowNumber];
+            if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
+            triggerRows_[(size_t) dr2.clipIndex].sendTargetIndex = clampSendTargetIndex (selectedId - 1);
+        };
+        return withPopup (combo);
+    }
 
     // ── Custom trigger clip row ──────────────────────────────────────────────
     if (clip.isCustom)
     {
-        if (columnId == 9)
+        if (columnId == 12)
         {
             auto* btn = dynamic_cast<InlineTestButtonCell*> (existing);
-            if (btn == nullptr) btn = new InlineTestButtonCell();
+            if (btn == nullptr) { if (existing != nullptr) existing->setVisible (false); btn = new InlineTestButtonCell(); }
             btn->onPress = [this, rowNumber]
             {
                 if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
@@ -2873,22 +2443,22 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
                 auto& c = triggerRows_[(size_t) dr2.clipIndex];
                 fireCustomTrigger (c);
-                // Highlight row: clear connected for all custom clips, mark this one
-                for (auto& t : triggerRows_)
-                    if (t.layer == c.layer) t.connected = false;
-                c.connected = true;
+                for (auto& t : triggerRows_) t.testHighlight = false;
+                c.testHighlight = true;
                 triggerTable_.updateContent();
                 triggerTable_.repaint();
             };
-            return btn;
+            return withPopup (btn);
         }
         if (columnId == 10)
         {
             // Col / L-C selector widget (same pattern as End Action)
             auto* cell = dynamic_cast<InlineCustomTypeCell*> (existing);
-            if (cell == nullptr) cell = new InlineCustomTypeCell();
+            if (cell == nullptr) { if (existing != nullptr) existing->setVisible (false); cell = new InlineCustomTypeCell(); }
             cell->setState (clip.customType, clip.customSourceCol,
-                            clip.customSourceLayer, clip.customSourceClip);
+                            clip.customType == "gc" ? clip.customSourceGroup : clip.customSourceLayer,
+                            clip.customSourceClip, clip.name);
+            cell->setFired (fired);
             cell->onChanged = [this, rowNumber] (const juce::String& type,
                                                   const juce::String& col,
                                                   const juce::String& layer,
@@ -2899,23 +2469,24 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
                 auto& c = triggerRows_[(size_t) dr2.clipIndex];
                 c.customType        = type;
-                c.customSourceCol   = col;
-                c.customSourceLayer = layer;
-                c.customSourceClip  = clipVal;
+                c.customSourceCol   = (type == "lc") ? juce::String() : col;   // col param = column in col/gc
+                c.customSourceGroup = (type == "gc") ? layer : juce::String(); // layer param = group in gc
+                c.customSourceLayer = (type == "lc") ? layer : juce::String();
+                c.customSourceClip  = (type == "lc") ? clipVal : juce::String();
             };
-            return cell;
+            return withPopup (cell);
         }
         if (columnId == 11)
         {
             auto* btn = dynamic_cast<InlineDeleteButtonCell*> (existing);
-            if (btn == nullptr) btn = new InlineDeleteButtonCell();
+            if (btn == nullptr) { if (existing != nullptr) existing->setVisible (false); btn = new InlineDeleteButtonCell(); }
             btn->onPress = [this, rowNumber]
             {
                 if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
                 auto dr2 = displayRows_[(size_t) rowNumber];
                 deleteCustomTrigger (dr2.clipIndex);
             };
-            return btn;
+            return withPopup (btn);
         }
         // Cols 3, 5, 6, 7, 8 fall through to standard handlers below
     }
@@ -2924,13 +2495,14 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
     {
         auto* ed = dynamic_cast<InlineTextCell*> (existing);
         if (ed == nullptr)
+        {
+            if (existing != nullptr) existing->setVisible (false);
             ed = new InlineTextCell();
+        }
 
-        const bool fired = (currentTriggerKeys_.find ({ clip.layer, clip.clip }) != currentTriggerKeys_.end());
-        juce::Colour textCol = juce::Colour::fromRGB (0xe0, 0xe0, 0xe0);
-        if (! clip.include)      textCol = juce::Colour::fromRGB (0x58, 0x58, 0x60);
-        else if (fired)          textCol = juce::Colour::fromRGB (0x20, 0x14, 0x00);
-        else if (clip.connected) textCol = juce::Colour::fromRGB (0x18, 0x18, 0x18);
+        juce::Colour textCol = kTextPrimary;
+        if (! clip.include)      textCol = kTextDisabled;
+        else if (fired)          textCol = kTextAmberDark;
         // applyColourToAllText/applyFontToAllText update existing sections immediately;
         // setColour(textColourId) alone only affects future inserts and is a no-op for existing text.
         const juce::Font cellFont (clipRowFont());
@@ -2953,15 +2525,21 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             if (columnId == 7) c.durationTc = v.trim();
             triggerTable_.repaint();
         };
-        return ed;
+        return withPopup (ed);
     }
 
     if (columnId == 8)
     {
         auto* cell = dynamic_cast<InlineEndActionCell*> (existing);
         if (cell == nullptr)
+        {
+            if (existing != nullptr) existing->setVisible (false);
             cell = new InlineEndActionCell();
-        cell->setState (clip.endActionMode, clip.endActionCol, clip.endActionLayer, clip.endActionClip);
+        }
+        cell->setState (clip.endActionMode, clip.endActionCol,
+                        clip.endActionMode == "gc" ? clip.endActionGroup : clip.endActionLayer,
+                        clip.endActionClip, clip.name);
+        cell->setFired (fired);
         cell->onChanged = [this, rowNumber] (const juce::String& mode,
                                              const juce::String& col,
                                              const juce::String& layer,
@@ -2971,35 +2549,41 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             auto dr2 = displayRows_[(size_t) rowNumber];
             if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
             auto& c = triggerRows_[(size_t) dr2.clipIndex];
-            c.endActionMode = mode;
-            c.endActionCol = col;
-            c.endActionLayer = layer;
-            c.endActionClip = clipValue;
+            c.endActionMode  = mode;
+            c.endActionCol   = (mode == "lc") ? juce::String() : col;    // col param = column in col/gc
+            c.endActionGroup = (mode == "gc") ? layer : juce::String();  // layer param = group in gc
+            c.endActionLayer = (mode == "lc") ? layer : juce::String();
+            c.endActionClip  = (mode == "lc") ? clipValue : juce::String();
             updateTableColumnWidths();
             triggerTable_.updateContent();
             triggerTable_.repaint();
         };
-        return cell;
+        return withPopup (cell);
     }
 
-    if (columnId == 9)
+    const bool hasCustomColumns = triggerTable_.getHeader().getIndexOfColumnId (12, false) >= 0;
+    const int testColumnId = hasCustomColumns ? 12 : 10;
+    if (columnId == testColumnId)
     {
         auto* btn = dynamic_cast<InlineTestButtonCell*> (existing);
         if (btn == nullptr)
+        {
+            if (existing != nullptr) existing->setVisible (false);
             btn = new InlineTestButtonCell();
+        }
         btn->onPress = [this, rowNumber]
         {
             if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
             auto dr2 = displayRows_[(size_t) rowNumber];
             if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
             auto& c = triggerRows_[(size_t) dr2.clipIndex];
-            sendTestTrigger (c.layer, c.clip);
-            for (auto& t : triggerRows_) if (t.layer == c.layer) t.connected = false;
-            c.connected = true;
+            sendTestTrigger (c.layer, c.clip, c.sendTargetIndex);
+            for (auto& t : triggerRows_) t.testHighlight = false;
+            c.testHighlight = true;
 
             // Schedule end action (same logic as evaluateAndFireTriggers)
             const juce::String eMode = c.endActionMode.trim().toLowerCase();
-            if (eMode == "col" || eMode == "lc")
+            if (eMode == "col" || eMode == "lc" || eMode == "gc")
             {
                 int durFrames = 0;
                 if (parseTcToFrames (c.durationTc, 25, durFrames) && durFrames > 0)
@@ -3009,6 +2593,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                     ea.executeTs = juce::Time::getMillisecondCounterHiRes() * 0.001 + durSec;
                     ea.mode  = eMode;
                     ea.col   = c.endActionCol;
+                    ea.group = c.endActionGroup;
                     ea.layer = c.endActionLayer;
                     ea.clip  = c.endActionClip;
                     pendingEndActions_[{ c.layer, c.clip }] = ea;
@@ -3022,15 +2607,23 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             triggerTable_.updateContent();
             triggerTable_.repaint();
         };
-        return btn;
+        return withPopup (btn);
     }
+    if (existing != nullptr)
+        existing->setVisible (false);
     return nullptr;
 }
 
-void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const juce::MouseEvent&)
+void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const juce::MouseEvent& event)
 {
     if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size()))
         return;
+
+    if (event.mods.isPopupMenu())
+    {
+        showRowContextMenu (rowNumber);
+        return;
+    }
 
     const auto& dr = displayRows_[(size_t) rowNumber];
     if (dr.isGroup)
@@ -3051,6 +2644,7 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
                         currentTriggerKeys_.erase ({ t.layer, t.clip });
                 }
         }
+        syncCustomGroupStateFromLayers();
         rebuildDisplayRows();
         triggerTable_.updateContent();
         triggerTable_.repaint();
@@ -3070,6 +2664,7 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
             if (t.layer == clip.layer && t.include)
                 anyIncluded = true;
         layerEnabled_[clip.layer] = anyIncluded;
+        syncCustomGroupStateFromLayers();
         triggerTable_.repaint();
         return;
     }
@@ -3079,6 +2674,60 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
 void TriggerContentComponent::cellDoubleClicked (int rowNumber, int columnId, const juce::MouseEvent&)
 {
     juce::ignoreUnused (rowNumber, columnId);
+}
+
+void TriggerContentComponent::showRowContextMenu (int rowNumber)
+{
+    if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size()))
+        return;
+
+    const auto& dr = displayRows_[(size_t) rowNumber];
+    if (dr.isGroup)
+    {
+        const bool isCustomGroup = trigger::model::isCustomLayer (dr.layer);
+        const int groupId = isCustomGroup ? trigger::model::groupIdFromLayer (dr.layer) : 0;
+
+        juce::PopupMenu menu;
+        menu.addItem (1, "Move Group Up");
+        menu.addItem (2, "Move Group Down");
+        menu.addSeparator();
+        menu.addItem (3, "Delete Group");
+
+        menu.showMenuAsync (juce::PopupMenu::Options(),
+                            [safe = juce::Component::SafePointer<TriggerContentComponent> (this), layer = dr.layer, groupId, isCustomGroup] (int result)
+                            {
+                                if (safe == nullptr)
+                                    return;
+                                if (result == 1) safe->moveLayerGroup (layer, -1);
+                                if (result == 2) safe->moveLayerGroup (layer, 1);
+                                if (result == 3)
+                                {
+                                    if (isCustomGroup) safe->deleteCustomGroup (groupId);
+                                    else               safe->deleteLayerGroup (layer);
+                                }
+                            });
+        return;
+    }
+
+    if (! juce::isPositiveAndBelow (dr.clipIndex, (int) triggerRows_.size()))
+        return;
+
+    const auto& clip = triggerRows_[(size_t) dr.clipIndex];
+    juce::PopupMenu menu;
+    menu.addItem (1, "Move Up");
+    menu.addItem (2, "Move Down");
+    menu.addSeparator();
+    menu.addItem (3, "Delete Trigger");
+
+    menu.showMenuAsync (juce::PopupMenu::Options(),
+                        [safe = juce::Component::SafePointer<TriggerContentComponent> (this), clipIndex = dr.clipIndex] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+                            if (result == 1) safe->moveClipRow (clipIndex, -1);
+                            if (result == 2) safe->moveClipRow (clipIndex, 1);
+                            if (result == 3) safe->deleteTriggerRow (clipIndex);
+                        });
 }
 
 void TriggerContentComponent::loadFonts()
@@ -3147,7 +2796,7 @@ void TriggerContentComponent::applyTheme()
         e.setColour (juce::TextEditor::backgroundColourId, input_);
         e.setColour (juce::TextEditor::outlineColourId, row_);
         e.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour::fromRGB (0x6a, 0x6a, 0x6a));
-        e.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+        e.setColour (juce::TextEditor::textColourId, kTextMuted);
         e.setJustification (juce::Justification::centredLeft);
         e.setIndents (8, 0);
     };
@@ -3156,6 +2805,9 @@ void TriggerContentComponent::applyTheme()
                      &resolumeSendIp3_, &resolumeSendPort3_,
                      &resolumeSendIp4_, &resolumeSendPort4_,
                      &resolumeSendIp5_, &resolumeSendPort5_,
+                     &resolumeSendIp6_, &resolumeSendPort6_,
+                     &resolumeSendIp7_, &resolumeSendPort7_,
+                     &resolumeSendIp8_, &resolumeSendPort8_,
                      &resolumeListenIp_, &resolumeListenPort_,
                      &resolumeMaxLayers_, &resolumeMaxClips_, &resolumeGlobalOffset_ })
     {
@@ -3164,44 +2816,34 @@ void TriggerContentComponent::applyTheme()
     for (auto* l : { &resolumeHeader_,
                      &triggerOutHeaderLabel_,
                      &resAdapterLbl_,
-                     &resSendIpLbl_, &resSendIpLbl2_, &resSendIpLbl3_, &resSendIpLbl4_, &resSendIpLbl5_,
-                     &resSendAdapterLbl1_, &resSendAdapterLbl2_, &resSendAdapterLbl3_, &resSendAdapterLbl4_, &resSendAdapterLbl5_,
+                     &resSendIpLbl_, &resSendIpLbl2_, &resSendIpLbl3_, &resSendIpLbl4_, &resSendIpLbl5_, &resSendIpLbl6_, &resSendIpLbl7_, &resSendIpLbl8_,
+                     &resSendAdapterLbl1_, &resSendAdapterLbl2_, &resSendAdapterLbl3_, &resSendAdapterLbl4_, &resSendAdapterLbl5_, &resSendAdapterLbl6_, &resSendAdapterLbl7_, &resSendAdapterLbl8_,
                      &resSendPortLbl_, &resListenIpLbl_, &resListenPortLbl_, &resMaxLayersLbl_, &resMaxClipsLbl_, &resGlobalOffsetLbl_ })
     {
-        l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+        styleValueLabel (*l);
         l->setJustificationType (juce::Justification::centredLeft);
     }
     for (auto* h : { &resolumeHeader_, &triggerOutHeaderLabel_ })
     {
-        h->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
-        h->setFont (juce::FontOptions (14.0f));
+        h->setColour (juce::Label::textColourId, kTextSecondary);
+        h->setFont (juce::FontOptions (kSectionHeaderFontSize));
         h->setJustificationType (juce::Justification::centredLeft);
     }
     resolumeStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    resolumeStatusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+    resolumeStatusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
+    networkStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    networkStatusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
     statusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    statusLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+    statusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
     resolumeStatusLabel_.setJustificationType (juce::Justification::centredLeft);
+    networkStatusLabel_.setJustificationType (juce::Justification::centred);
     statusLabel_.setJustificationType (juce::Justification::centredRight);
     // Pass mouse events through so the status bar click (openStatusMonitorWindow) reaches the parent
     resolumeStatusLabel_.setInterceptsMouseClicks (false, false);
+    networkStatusLabel_.setInterceptsMouseClicks (false, false);
     statusLabel_.setInterceptsMouseClicks (false, false);
-    getTriggersBtn_.setColour (juce::TextButton::buttonColourId, row_);
-    getTriggersBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
-    getTriggersBtn_.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    getTriggersBtn_.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-    createCustomBtn_.setColour (juce::TextButton::buttonColourId,   row_);
-    createCustomBtn_.setColour (juce::TextButton::buttonOnColourId, row_);
-    createCustomBtn_.setColour (juce::TextButton::textColourOffId,  juce::Colours::white);
-    createCustomBtn_.setColour (juce::TextButton::textColourOnId,   juce::Colours::white);
-
-    for (auto* b : { &resolumeAddTargetBtn_, &resolumeDelTargetBtn2_, &resolumeDelTargetBtn3_, &resolumeDelTargetBtn4_, &resolumeDelTargetBtn5_ })
-    {
-        b->setColour (juce::TextButton::buttonColourId, input_);
-        b->setColour (juce::TextButton::buttonOnColourId, input_);
-        b->setColour (juce::TextButton::textColourOffId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
-        b->setColour (juce::TextButton::textColourOnId, kBg);
-    }
+    styleRowButton (getTriggersBtn_, row_);
+    styleRowButton (createCustomBtn_, row_);
 }
 
 void TriggerContentComponent::openHelpPage()
@@ -3241,6 +2883,9 @@ void TriggerContentComponent::refreshTriggerRows()
         if (c.durationSeconds <= 0.0)
             continue;
 
+        if (deletedLayers_.count (c.layer) > 0)
+            continue;
+
         const auto key = juce::String (c.layer) + ":" + juce::String (c.clip);
         const bool includeThisClip = c.hasOffset ? includeClipsWithOffset_
                                                  : includeClipsWithoutOffset_;
@@ -3274,6 +2919,14 @@ void TriggerContentComponent::refreshTriggerRows()
             row.endActionCol = old.endActionCol;
             row.endActionLayer = old.endActionLayer;
             row.endActionClip = old.endActionClip;
+            row.endActionGroup = old.endActionGroup;
+            row.sendTargetIndex = old.sendTargetIndex;
+            row.orderIndex = old.orderIndex;
+            row.testHighlight = old.testHighlight;
+        }
+        else
+        {
+            row.orderIndex = c.clip - 1;
         }
         triggerRows_.push_back (row);
     }
@@ -3293,9 +2946,45 @@ void TriggerContentComponent::refreshTriggerRows()
         }
     }
 
+    normaliseLayerOrder();
     rebuildDisplayRows();
     triggerTable_.updateContent();
     triggerTable_.repaint();
+}
+
+void TriggerContentComponent::syncTriggerRowFeedbackFromCollector()
+{
+    const auto clips = clipCollector_.snapshot();
+    std::map<std::pair<int, int>, bool> connectedByKey;
+    bool hasLiveConnectedClip = false;
+    for (const auto& c : clips)
+    {
+        connectedByKey[{ c.layer, c.clip }] = c.connected;
+        hasLiveConnectedClip = hasLiveConnectedClip || c.connected;
+    }
+
+    bool changed = false;
+    for (auto& row : triggerRows_)
+    {
+        if (row.isCustom)
+            continue;
+
+        const bool nextConnected = connectedByKey[{ row.layer, row.clip }];
+        if (row.connected != nextConnected)
+        {
+            row.connected = nextConnected;
+            changed = true;
+        }
+
+        if (hasLiveConnectedClip && row.testHighlight)
+        {
+            row.testHighlight = false;
+            changed = true;
+        }
+    }
+
+    if (changed)
+        triggerTable_.repaint();
 }
 
 void TriggerContentComponent::updateClipCountdowns()
@@ -3360,6 +3049,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
 
     const int prevFrames = lastInputFrames_;
     lastInputFrames_ = currentFrames;
+    const int frameJump = currentFrames - prevFrames;
 
     if (currentFrames < prevFrames)
     {
@@ -3374,6 +3064,18 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         triggerTable_.updateContent();
         triggerTable_.repaint();
         return;
+    }
+
+    // Treat a large forward seek like a re-arm event: we only want cues at/near the
+    // landed position, not every cue window crossed between the old and new timecode.
+    const bool largeForwardJump = frameJump > fps * 2;
+    if (largeForwardJump)
+    {
+        triggerRangeActive_.clear();
+        currentTriggerKeys_.clear();
+        pendingEndActions_.clear();
+        for (auto& t : triggerRows_)
+            t.connected = false;
     }
 
     struct Candidate
@@ -3413,7 +3115,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         newRangeState[key] = inNow;
 
         bool crossed = false;
-        if (prevFrames != currentFrames)
+        if (! largeForwardJump && prevFrames != currentFrames)
         {
             const int lo = juce::jmin (prevFrames, currentFrames);
             const int hi = juce::jmax (prevFrames, currentFrames);
@@ -3468,16 +3170,19 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         if (t.isCustom)
             fireCustomTrigger (t);
         else
-            sendTestTrigger (t.layer, t.clip);
+            sendTestTrigger (t.layer, t.clip, t.sendTargetIndex);
         for (auto& x : triggerRows_)
+        {
             if (x.layer == t.layer)
                 x.connected = false;
+            x.testHighlight = false;
+        }
         t.connected = true;
 
-        // Schedule end action (Col / L-C mode), mirroring Python _schedule_end_action_for_trigger
+        // Schedule end action (Col / L-C / G-C mode), mirroring Python _schedule_end_action_for_trigger
         {
             const juce::String eMode = t.endActionMode.trim().toLowerCase();
-            if (eMode == "col" || eMode == "lc")
+            if (eMode == "col" || eMode == "lc" || eMode == "gc")
             {
                 int durFrames = 0;
                 // durationTc is always stored in FPS_25 format — parse with fixed 25 to avoid
@@ -3496,6 +3201,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
                     ea.executeTs = now + tcAlignOffset + durSec;
                     ea.mode      = eMode;
                     ea.col       = t.endActionCol;
+                    ea.group     = t.endActionGroup;
                     ea.layer     = t.endActionLayer;
                     ea.clip      = t.endActionClip;
                     pendingEndActions_[{ t.layer, t.clip }] = ea;
@@ -3552,6 +3258,13 @@ void TriggerContentComponent::processEndActions()
             const int clp = ea.clip.getIntValue();
             if (lay > 0 && clp > 0)
                 addr = "/composition/layers/" + juce::String (lay) + "/clips/" + juce::String (clp) + "/connect";
+        }
+        else if (ea.mode == "gc")
+        {
+            const int grp = ea.group.getIntValue();
+            const int col = ea.col.getIntValue();
+            if (grp > 0 && col > 0)
+                addr = "/composition/groups/" + juce::String (grp) + "/columns/" + juce::String (col) + "/connect";
         }
 
         if (addr.isNotEmpty())
@@ -3826,6 +3539,9 @@ void TriggerContentComponent::refreshNetworkMidiLists()
     resolumeSendAdapterCombo3_.clear();
     resolumeSendAdapterCombo4_.clear();
     resolumeSendAdapterCombo5_.clear();
+    resolumeSendAdapterCombo6_.clear();
+    resolumeSendAdapterCombo7_.clear();
+    resolumeSendAdapterCombo8_.clear();
     oscAdapterCombo_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
     resolumeAdapterCombo_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
     resolumeSendAdapterCombo1_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
@@ -3833,6 +3549,9 @@ void TriggerContentComponent::refreshNetworkMidiLists()
     resolumeSendAdapterCombo3_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
     resolumeSendAdapterCombo4_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
     resolumeSendAdapterCombo5_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
+    resolumeSendAdapterCombo6_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
+    resolumeSendAdapterCombo7_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
+    resolumeSendAdapterCombo8_.addItem ("ALL INTERFACES (0.0.0.0)", 1);
     juce::StringArray oscAdapterItems;
     juce::StringArray networkAdapterItems;
     for (int i = 0; i < ifaces.size(); ++i)
@@ -3857,6 +3576,9 @@ void TriggerContentComponent::refreshNetworkMidiLists()
         resolumeSendAdapterCombo3_.addItem (networkAdapterItems[i], id);
         resolumeSendAdapterCombo4_.addItem (networkAdapterItems[i], id);
         resolumeSendAdapterCombo5_.addItem (networkAdapterItems[i], id);
+        resolumeSendAdapterCombo6_.addItem (networkAdapterItems[i], id);
+        resolumeSendAdapterCombo7_.addItem (networkAdapterItems[i], id);
+        resolumeSendAdapterCombo8_.addItem (networkAdapterItems[i], id);
     }
     if (artnetInCombo_.getNumItems() > 0)
         artnetInCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
@@ -3864,7 +3586,7 @@ void TriggerContentComponent::refreshNetworkMidiLists()
         oscAdapterCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
     if (resolumeAdapterCombo_.getNumItems() > 0)
         resolumeAdapterCombo_.setSelectedItemIndex (0, juce::dontSendNotification);
-    for (auto* c : { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_ })
+    for (auto* c : { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_ })
         if (c->getNumItems() > 0)
             c->setSelectedItemIndex (0, juce::dontSendNotification);
     syncOscIpWithAdapter();
@@ -4060,10 +3782,10 @@ void TriggerContentComponent::syncResolumeListenIpWithAdapter()
 
 void TriggerContentComponent::toggleSendAdapterExpanded (int index)
 {
-    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_ };
-    ExpandCircleButton* buttons[] = { &resolumeSendExpandBtn1_, &resolumeSendExpandBtn2_, &resolumeSendExpandBtn3_, &resolumeSendExpandBtn4_, &resolumeSendExpandBtn5_ };
+    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_, &resolumeSendExpanded6_, &resolumeSendExpanded7_, &resolumeSendExpanded8_ };
+    ExpandCircleButton* buttons[] = { &resolumeSendExpandBtn1_, &resolumeSendExpandBtn2_, &resolumeSendExpandBtn3_, &resolumeSendExpandBtn4_, &resolumeSendExpandBtn5_, &resolumeSendExpandBtn6_, &resolumeSendExpandBtn7_, &resolumeSendExpandBtn8_ };
 
-    if (! juce::isPositiveAndBelow (index, 5))
+    if (! juce::isPositiveAndBelow (index, 8))
         return;
 
     *expandedStates[(size_t) index] = ! *expandedStates[(size_t) index];
@@ -4075,32 +3797,34 @@ void TriggerContentComponent::toggleSendAdapterExpanded (int index)
 
 void TriggerContentComponent::addResolumeSendTarget()
 {
-    if (resolumeSendTargetCount_ >= 5)
+    if (resolumeSendTargetCount_ >= 8)
         return;
 
-    auto adapters = std::array<juce::ComboBox*, 5> { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_ };
-    auto ips = std::array<juce::TextEditor*, 5> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_ };
-    auto ports = std::array<juce::TextEditor*, 5> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ };
-    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_ };
+    auto adapters = std::array<juce::ComboBox*, 8> { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_ };
+    auto ips = std::array<juce::TextEditor*, 8> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_, &resolumeSendIp6_, &resolumeSendIp7_, &resolumeSendIp8_ };
+    auto ports = std::array<juce::TextEditor*, 8> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_, &resolumeSendPort6_, &resolumeSendPort7_, &resolumeSendPort8_ };
+    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_, &resolumeSendExpanded6_, &resolumeSendExpanded7_, &resolumeSendExpanded8_ };
     const int src = juce::jmax (0, resolumeSendTargetCount_ - 1);
     adapters[(size_t) resolumeSendTargetCount_]->setText (adapters[(size_t) src]->getText(), juce::dontSendNotification);
     ips[(size_t) resolumeSendTargetCount_]->setText (ips[(size_t) src]->getText(), juce::dontSendNotification);
     ports[(size_t) resolumeSendTargetCount_]->setText (ports[(size_t) src]->getText(), juce::dontSendNotification);
     *expandedStates[(size_t) resolumeSendTargetCount_] = false;
     ++resolumeSendTargetCount_;
+    triggerTable_.updateContent();
+    triggerTable_.repaint();
     resized();
     repaint();
 }
 
 void TriggerContentComponent::removeResolumeSendTarget (int targetIndex)
 {
-    if (targetIndex <= 0 || targetIndex >= resolumeSendTargetCount_ || targetIndex > 4)
+    if (targetIndex <= 0 || targetIndex >= resolumeSendTargetCount_ || targetIndex > 7)
         return;
 
-    auto adapters = std::array<juce::ComboBox*, 5> { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_ };
-    auto ips = std::array<juce::TextEditor*, 5> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_ };
-    auto ports = std::array<juce::TextEditor*, 5> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_ };
-    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_ };
+    auto adapters = std::array<juce::ComboBox*, 8> { &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_ };
+    auto ips = std::array<juce::TextEditor*, 8> { &resolumeSendIp_, &resolumeSendIp2_, &resolumeSendIp3_, &resolumeSendIp4_, &resolumeSendIp5_, &resolumeSendIp6_, &resolumeSendIp7_, &resolumeSendIp8_ };
+    auto ports = std::array<juce::TextEditor*, 8> { &resolumeSendPort_, &resolumeSendPort2_, &resolumeSendPort3_, &resolumeSendPort4_, &resolumeSendPort5_, &resolumeSendPort6_, &resolumeSendPort7_, &resolumeSendPort8_ };
+    bool* expandedStates[] = { &resolumeSendExpanded1_, &resolumeSendExpanded2_, &resolumeSendExpanded3_, &resolumeSendExpanded4_, &resolumeSendExpanded5_, &resolumeSendExpanded6_, &resolumeSendExpanded7_, &resolumeSendExpanded8_ };
     for (int i = targetIndex; i < resolumeSendTargetCount_ - 1; ++i)
     {
         adapters[(size_t) i]->setText (adapters[(size_t) (i + 1)]->getText(), juce::dontSendNotification);
@@ -4114,14 +3838,77 @@ void TriggerContentComponent::removeResolumeSendTarget (int targetIndex)
     ports[(size_t) (resolumeSendTargetCount_ - 1)]->setText ("7000", juce::dontSendNotification);
     *expandedStates[(size_t) (resolumeSendTargetCount_ - 1)] = false;
     --resolumeSendTargetCount_;
+    for (auto& clip : triggerRows_)
+        clip.sendTargetIndex = clampSendTargetIndex (clip.sendTargetIndex);
+    triggerTable_.updateContent();
+    triggerTable_.repaint();
     resized();
     repaint();
 }
 
+int TriggerContentComponent::clampSendTargetIndex (int index) const
+{
+    return juce::jlimit (0, juce::jlimit (1, 8, resolumeSendTargetCount_), index);
+}
+
+void TriggerContentComponent::populateSendTargetCombo (juce::ComboBox& combo, int selectedIndex) const
+{
+    combo.clear (juce::dontSendNotification);
+    combo.addItem ("All", 1);
+    const int maxTargets = juce::jlimit (1, 8, resolumeSendTargetCount_);
+    for (int i = 1; i <= maxTargets; ++i)
+        combo.addItem ("Send " + juce::String (i), i + 1);
+
+    const int clamped = clampSendTargetIndex (selectedIndex);
+    combo.setSelectedId (clamped + 1, juce::dontSendNotification);
+}
+
 std::vector<TriggerContentComponent::ResolumeSendTarget> TriggerContentComponent::collectResolumeSendTargets() const
 {
+    return collectResolumeSendTargets (0);
+}
+
+std::optional<TriggerContentComponent::ResolumeSendTarget> TriggerContentComponent::getConfiguredResolumeSendTarget (int oneBasedIndex) const
+{
+    if (oneBasedIndex < 1 || oneBasedIndex > juce::jlimit (1, 8, resolumeSendTargetCount_))
+        return std::nullopt;
+
     std::vector<ResolumeSendTarget> targets;
-    targets.reserve ((size_t) juce::jlimit (1, 5, resolumeSendTargetCount_));
+    targets.reserve (1);
+
+    auto addTarget = [&targets] (const juce::ComboBox& adapterCombo, const juce::TextEditor& ipEd, const juce::TextEditor& portEd)
+    {
+        ResolumeSendTarget target;
+        target.localBindIp = parseBindIpFromAdapterLabel (adapterCombo.getText());
+        target.ip = ipEd.getText().trim();
+        if (target.ip.isEmpty())
+            target.ip = "127.0.0.1";
+        target.port = juce::jlimit (1, 65535, portEd.getText().trim().getIntValue());
+        targets.emplace_back (target);
+    };
+
+    switch (oneBasedIndex)
+    {
+        case 1: addTarget (resolumeSendAdapterCombo1_, resolumeSendIp_,  resolumeSendPort_); break;
+        case 2: addTarget (resolumeSendAdapterCombo2_, resolumeSendIp2_, resolumeSendPort2_); break;
+        case 3: addTarget (resolumeSendAdapterCombo3_, resolumeSendIp3_, resolumeSendPort3_); break;
+        case 4: addTarget (resolumeSendAdapterCombo4_, resolumeSendIp4_, resolumeSendPort4_); break;
+        case 5: addTarget (resolumeSendAdapterCombo5_, resolumeSendIp5_, resolumeSendPort5_); break;
+        case 6: addTarget (resolumeSendAdapterCombo6_, resolumeSendIp6_, resolumeSendPort6_); break;
+        case 7: addTarget (resolumeSendAdapterCombo7_, resolumeSendIp7_, resolumeSendPort7_); break;
+        case 8: addTarget (resolumeSendAdapterCombo8_, resolumeSendIp8_, resolumeSendPort8_); break;
+        default: break;
+    }
+
+    if (targets.empty())
+        return std::nullopt;
+    return targets.front();
+}
+
+std::vector<TriggerContentComponent::ResolumeSendTarget> TriggerContentComponent::collectResolumeSendTargets (int sendTargetIndex) const
+{
+    std::vector<ResolumeSendTarget> targets;
+    targets.reserve ((size_t) juce::jlimit (1, 8, resolumeSendTargetCount_));
 
     auto addTarget = [&targets] (const juce::ComboBox& adapterCombo, const juce::TextEditor& ipEd, const juce::TextEditor& portEd)
     {
@@ -4141,15 +3928,60 @@ std::vector<TriggerContentComponent::ResolumeSendTarget> TriggerContentComponent
         targets.emplace_back (target);
     };
 
-    addTarget (resolumeSendAdapterCombo1_, resolumeSendIp_, resolumeSendPort_);
-    if (resolumeSendTargetCount_ >= 2) addTarget (resolumeSendAdapterCombo2_, resolumeSendIp2_, resolumeSendPort2_);
-    if (resolumeSendTargetCount_ >= 3) addTarget (resolumeSendAdapterCombo3_, resolumeSendIp3_, resolumeSendPort3_);
-    if (resolumeSendTargetCount_ >= 4) addTarget (resolumeSendAdapterCombo4_, resolumeSendIp4_, resolumeSendPort4_);
-    if (resolumeSendTargetCount_ >= 5) addTarget (resolumeSendAdapterCombo5_, resolumeSendIp5_, resolumeSendPort5_);
+    const int clampedSelection = clampSendTargetIndex (sendTargetIndex);
+    auto addByIndex = [this, &addTarget] (int index)
+    {
+        switch (index)
+        {
+            case 1: addTarget (resolumeSendAdapterCombo1_, resolumeSendIp_,  resolumeSendPort_); break;
+            case 2: addTarget (resolumeSendAdapterCombo2_, resolumeSendIp2_, resolumeSendPort2_); break;
+            case 3: addTarget (resolumeSendAdapterCombo3_, resolumeSendIp3_, resolumeSendPort3_); break;
+            case 4: addTarget (resolumeSendAdapterCombo4_, resolumeSendIp4_, resolumeSendPort4_); break;
+            case 5: addTarget (resolumeSendAdapterCombo5_, resolumeSendIp5_, resolumeSendPort5_); break;
+            case 6: addTarget (resolumeSendAdapterCombo6_, resolumeSendIp6_, resolumeSendPort6_); break;
+            case 7: addTarget (resolumeSendAdapterCombo7_, resolumeSendIp7_, resolumeSendPort7_); break;
+            case 8: addTarget (resolumeSendAdapterCombo8_, resolumeSendIp8_, resolumeSendPort8_); break;
+            default: break;
+        }
+    };
+
+    if (clampedSelection > 0)
+    {
+        addByIndex (clampedSelection);
+        return targets;
+    }
+
+    addByIndex (1);
+    if (resolumeSendTargetCount_ >= 2) addByIndex (2);
+    if (resolumeSendTargetCount_ >= 3) addByIndex (3);
+    if (resolumeSendTargetCount_ >= 4) addByIndex (4);
+    if (resolumeSendTargetCount_ >= 5) addByIndex (5);
+    if (resolumeSendTargetCount_ >= 6) addByIndex (6);
+    if (resolumeSendTargetCount_ >= 7) addByIndex (7);
+    if (resolumeSendTargetCount_ >= 8) addByIndex (8);
     return targets;
 }
 
-bool TriggerContentComponent::sendOscPulse (const ResolumeSendTarget& target, const juce::String& addr) const
+juce::String TriggerContentComponent::makeResolumeSendTargetKey (const ResolumeSendTarget& target)
+{
+    return target.localBindIp.trim() + "|" + target.ip.trim() + "|" + juce::String (target.port);
+}
+
+juce::String TriggerContentComponent::describeResolumeSendTarget (const ResolumeSendTarget& target)
+{
+    return target.ip.trim() + ":" + juce::String (target.port);
+}
+
+void TriggerContentComponent::updateSendTargetRuntimeState (const ResolumeSendTarget& target, bool ok, const juce::String& detail)
+{
+    auto& state = sendTargetRuntimeStates_[makeResolumeSendTargetKey (target)];
+    state.ok = ok;
+    state.detail = detail;
+    if (ok)
+        state.lastTxMs = juce::Time::currentTimeMillis();
+}
+
+bool TriggerContentComponent::sendOscPulse (const ResolumeSendTarget& target, const juce::String& addr)
 {
     juce::DatagramSocket socket (true);
     const auto bindIp = target.localBindIp.trim().isNotEmpty() ? target.localBindIp.trim() : juce::String ("0.0.0.0");
@@ -4159,15 +3991,59 @@ bool TriggerContentComponent::sendOscPulse (const ResolumeSendTarget& target, co
     else
         bound = socket.bindToPort (0);
     if (! bound)
+    {
+        updateSendTargetRuntimeState (target, false, "bind failed (" + bindIp + ")");
+        oscSendOk_ = false;
+        oscSendState_ = "error";
+        oscSendDetail_ = "send bind failed on " + bindIp;
+        updateNetworkStatusIndicator();
         return false;
+    }
 
     juce::OSCSender sender;
     if (! sender.connectToSocket (socket, target.ip, target.port))
+    {
+        updateSendTargetRuntimeState (target, false, "connect failed (" + describeResolumeSendTarget (target) + ")");
+        oscSendOk_ = false;
+        oscSendState_ = "error";
+        oscSendDetail_ = "send connect failed to " + target.ip + ":" + juce::String (target.port);
+        updateNetworkStatusIndicator();
         return false;
+    }
 
     juce::OSCMessage on (addr);  on.addInt32 (1);
     juce::OSCMessage off (addr); off.addInt32 (0);
-    return sender.send (on) && sender.send (off);
+    const bool ok = sender.send (on) && sender.send (off);
+
+    if (ok)
+    {
+        updateSendTargetRuntimeState (target, true, "ok (" + describeResolumeSendTarget (target) + ")");
+        lastOscOutMs_ = juce::Time::currentTimeMillis();
+        lastOscOutPort_ = target.port;
+        oscSendOk_ = true;
+        oscSendState_ = "ok";
+        oscSendDetail_ = "send " + target.ip + ":" + juce::String (target.port);
+        updateNetworkStatusIndicator();
+        OscLogEntry e;
+        e.dir         = OscLogEntry::Dir::output;
+        e.timestampMs = juce::Time::currentTimeMillis();
+        e.ip          = target.ip;
+        e.port        = target.port;
+        e.address     = addr;
+        e.type        = "i32";
+        e.value       = "1\xe2\x86\x92" "0";   // "1→0"
+        oscLog_.push (std::move (e));
+    }
+    else
+    {
+        updateSendTargetRuntimeState (target, false, "send failed (" + describeResolumeSendTarget (target) + ")");
+        oscSendOk_ = false;
+        oscSendState_ = "error";
+        oscSendDetail_ = "send failed to " + target.ip + ":" + juce::String (target.port);
+        updateNetworkStatusIndicator();
+    }
+
+    return ok;
 }
 
 bool TriggerContentComponent::parseTcToFrames (const juce::String& tc, int fps, int& outFrames)
@@ -4199,6 +4075,89 @@ void TriggerContentComponent::setResolumeStatusText (const juce::String& text, j
     resolumeStatusLabel_.setColour (juce::Label::textColourId, colour);
 }
 
+void TriggerContentComponent::setNetworkStatusText (const juce::String& text, juce::Colour colour)
+{
+    networkStatusLabel_.setText (text, juce::dontSendNotification);
+    networkStatusLabel_.setColour (juce::Label::textColourId, colour);
+}
+
+void TriggerContentComponent::updateNetworkStatusIndicator()
+{
+    const auto nowMs = juce::Time::currentTimeMillis();
+    const bool inRecent = lastOscInMs_ > 0 && (nowMs - lastOscInMs_) <= 2000;
+    bool outRecent = lastOscOutMs_ > 0 && (nowMs - lastOscOutMs_) <= 2000;
+    const int configuredTargetCount = juce::jlimit (1, 8, resolumeSendTargetCount_);
+    int okTargets = 0;
+    int errorTargets = 0;
+    for (int i = 1; i <= configuredTargetCount; ++i)
+    {
+        if (auto target = getConfiguredResolumeSendTarget (i); target.has_value())
+        {
+            if (auto it = sendTargetRuntimeStates_.find (makeResolumeSendTargetKey (*target)); it != sendTargetRuntimeStates_.end())
+            {
+                okTargets += it->second.ok ? 1 : 0;
+                errorTargets += it->second.ok ? 0 : 1;
+                outRecent = outRecent || (it->second.lastTxMs > 0 && (nowMs - it->second.lastTxMs) <= 2000);
+            }
+        }
+    }
+
+    juce::String text = "OSC ";
+    juce::Colour colour = juce::Colour::fromRGB (0xa0, 0xa4, 0xac);
+
+    if (oscListenState_ == "error")
+    {
+        text = "OSC IN ERR: " + oscListenDetail_;
+        colour = juce::Colour::fromRGB (0xec, 0x48, 0x3c);
+    }
+    else if (oscSendState_ == "error")
+    {
+        text = "OSC OUT ERR: " + oscSendDetail_;
+        colour = juce::Colour::fromRGB (0xde, 0x9b, 0x3c);
+    }
+    else
+    {
+        const auto listenPort = juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue());
+        text = "IN " + juce::String (oscListenOk_ ? "OK " : "-- ") + juce::String (listenPort)
+             + "  OUT " + juce::String (okTargets) + "/" + juce::String (configuredTargetCount) + " OK";
+
+        if (inRecent || outRecent)
+        {
+            text += "  ";
+            if (inRecent)  text += "RX";
+            if (inRecent && outRecent) text += "/";
+            if (outRecent) text += "TX";
+            colour = juce::Colour::fromRGB (0x51, 0xc8, 0x7b);
+        }
+        else if (errorTargets > 0)
+        {
+            colour = juce::Colour::fromRGB (0xde, 0x9b, 0x3c);
+        }
+    }
+
+    setNetworkStatusText (text, colour);
+}
+
+juce::File TriggerContentComponent::getGetClipsDiagnosticLogFile() const
+{
+    return juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
+        .getChildFile ("EasyTrigger_GetClips_Log.txt");
+}
+
+void TriggerContentComponent::logGetClipsDiagnostic (const juce::String& message) const
+{
+    const auto line = "[" + diagnosticTimestamp() + "] " + message + "\r\n";
+    const auto logFile = getGetClipsDiagnosticLogFile();
+    logFile.getParentDirectory().createDirectory();
+
+    if (auto stream = std::make_unique<juce::FileOutputStream> (logFile, 32768))
+    {
+        stream->setPosition (logFile.existsAsFile() ? logFile.getSize() : 0);
+        stream->writeText (line, false, false, nullptr);
+        stream->flush();
+    }
+}
+
 void TriggerContentComponent::openStatusMonitorWindow()
 {
     // If already open, bring to front
@@ -4214,22 +4173,9 @@ void TriggerContentComponent::openStatusMonitorWindow()
         keys.clearQuick();
         vals.clearQuick();
 
-        keys.add ("Source:");        vals.add (sourceCombo_.getText());
-        keys.add ("Input TC:");      vals.add (tcLabel_.getText()
-                                               + "  (" + formatDisplayedInputFps (hasLatchedTc_, latchedFps_, fpsIndicatorStrip_.get()) + ")");
-        keys.add ("TC Status:");     vals.add (statusLabel_.getText());
-        keys.add ("Resolume:");      vals.add (resolumeStatusLabel_.getText());
-        keys.add ("LTC Out:");       vals.add ((ltcOutSwitch_.getState() ? "ON" : "OFF")
-                                               + juce::String ("  |  ") + ltcOutDeviceCombo_.getText());
-        keys.add ("LTC Ch / Rate:"); vals.add (ltcOutChannelCombo_.getText()
-                                               + "  |  " + ltcOutSampleRateCombo_.getText());
-        keys.add ("MTC In:");        vals.add (mtcInCombo_.getText());
-        keys.add ("ArtNet In:");     vals.add (artnetInCombo_.getText()
-                                               + "  |  " + artnetListenIpEditor_.getText());
-        keys.add ("OSC Listen:");    vals.add (oscIpEditor_.getText() + ":" + oscPortEditor_.getText());
-
-        // Last fired clips — one per layer, from currentTriggerKeys_
         juce::String fired;
+        int okSendSlots = 0;
+        const int totalSendSlots = juce::jlimit (1, 8, resolumeSendTargetCount_);
         for (const auto& key : currentTriggerKeys_)
         {
             for (const auto& t : triggerRows_)
@@ -4245,936 +4191,61 @@ void TriggerContentComponent::openStatusMonitorWindow()
                 }
             }
         }
+
+        keys.add ("Source:");        vals.add (sourceCombo_.getText());
+        keys.add ("Input TC:");      vals.add (tcLabel_.getText()
+                                               + "  (" + formatDisplayedInputFps (hasLatchedTc_, latchedFps_, fpsIndicatorStrip_.get()) + ")");
+        keys.add ("TC Status:");     vals.add (statusLabel_.getText());
+        keys.add ("LTC Out:");       vals.add ((ltcOutSwitch_.getState() ? "ON" : "OFF")
+                                               + juce::String ("  |  ") + ltcOutDeviceCombo_.getText());
+        keys.add ("LTC Ch / Rate:"); vals.add (ltcOutChannelCombo_.getText()
+                                               + "  |  " + ltcOutSampleRateCombo_.getText());
+        keys.add ("MTC In:");        vals.add (mtcInCombo_.getText());
         keys.add ("Last Fired:");    vals.add (fired.isEmpty() ? "-" : fired);
+        keys.add ("Resolume:");      vals.add (resolumeStatusLabel_.getText());
+        keys.add ("Network:");       vals.add (networkStatusLabel_.getText());
+        keys.add ("ArtNet In:");     vals.add (artnetInCombo_.getText()
+                                               + "  |  " + artnetListenIpEditor_.getText());
+        keys.add ("OSC Listen:");    vals.add (oscIpEditor_.getText() + ":" + oscPortEditor_.getText());
+        keys.add ("Res Listen:");    vals.add (oscListenDetail_);
+        for (int i = 1; i <= totalSendSlots; ++i)
+        {
+            if (auto target = getConfiguredResolumeSendTarget (i); target.has_value())
+            {
+                const auto key = makeResolumeSendTargetKey (*target);
+                juce::String value = "idle  |  " + describeResolumeSendTarget (*target);
+                if (auto it = sendTargetRuntimeStates_.find (key); it != sendTargetRuntimeStates_.end())
+                {
+                    okSendSlots += it->second.ok ? 1 : 0;
+                    value = (it->second.ok ? "OK  |  " : "ERR |  ")
+                          + describeResolumeSendTarget (*target)
+                          + "  |  " + it->second.detail;
+                }
+                keys.add ("Send " + juce::String (i) + ":");
+                vals.add (value);
+            }
+        }
+        keys.add ("Send Summary:");  vals.add (juce::String (okSendSlots) + "/" + juce::String (totalSendSlots)
+                                               + " OK  |  " + networkStatusLabel_.getText());
+        keys.add ("OSC Activity:");  vals.add ("RX "
+                                               + juce::String (lastOscInMs_ > 0 ? juce::Time (lastOscInMs_).formatted ("%H:%M:%S") : "-")
+                                               + "  |  TX "
+                                               + juce::String (lastOscOutMs_ > 0 ? juce::Time (lastOscOutMs_).formatted ("%H:%M:%S") : "-"));
+
+        // Last fired clips — one per layer, from currentTriggerKeys_
     };
 
-    auto* win = new StatusMonitorWindow (std::move (getter), getParentComponent());
+    auto* win = new StatusMonitorWindow (std::move (getter), &oscLog_, getParentComponent());
     statusMonitor_ = win;
 }
 
-void TriggerContentComponent::sendTestTrigger (int layer, int clip)
+void TriggerContentComponent::sendTestTrigger (int layer, int clip, int sendTargetIndex)
 {
     if (layer < 1 || clip < 1)
         return;
     const auto addr = "/composition/layers/" + juce::String (layer) + "/clips/" + juce::String (clip) + "/connect";
-    for (const auto& target : collectResolumeSendTargets())
+    for (const auto& target : collectResolumeSendTargets (sendTargetIndex))
         sendOscPulse (target, addr);
 }
 
-void TriggerContentComponent::rebuildDisplayRows()
-{
-    displayRows_.clear();
-    std::map<int, std::vector<int>> byLayer;
-    for (int i = 0; i < (int) triggerRows_.size(); ++i)
-        byLayer[triggerRows_[(size_t) i].layer].push_back (i);
-
-    for (auto& [layer, indices] : byLayer)
-    {
-        std::sort (indices.begin(), indices.end(), [this] (int a, int b)
-        {
-            return triggerRows_[(size_t) a].clip < triggerRows_[(size_t) b].clip;
-        });
-
-        if (layerExpanded_.find (layer) == layerExpanded_.end())
-            layerExpanded_[layer] = true;
-        bool anyIncluded = false;
-        for (int idx : indices)
-            anyIncluded = anyIncluded || triggerRows_[(size_t) idx].include;
-        layerEnabled_[layer] = anyIncluded;
-
-        displayRows_.push_back ({ true, layer, -1 });
-        if (layerExpanded_[layer])
-            for (int idx : indices)
-                displayRows_.push_back ({ false, layer, idx });
-    }
-}
-
-bool TriggerContentComponent::hasCustomGroup() const
-{
-    for (const auto& c : triggerRows_)
-        if (c.isCustom) return true;
-    return false;
-}
-
-void TriggerContentComponent::addCustomColTrigger()
-{
-    addCustomColumns();
-    TriggerClip row;
-    row.layer = 0;
-    int nextClip = 1;
-    for (const auto& c : triggerRows_)
-        if (c.isCustom) nextClip = juce::jmax (nextClip, c.clip + 1);
-    row.clip = nextClip;
-    row.include = true;
-    row.hasOffset = true;
-    row.name = "Custom " + juce::String (nextClip);
-    row.layerName = "Custom Trigger";
-    row.countdownTc = "00:00:00:00";
-    row.triggerRangeSec = 5.0;
-    row.durationTc = "00:00:00:00";
-    row.triggerTc = "00:00:00:00";
-    row.endActionMode = "off";
-    row.isCustom = true;
-    row.customType = "col";
-    row.customSourceCol = "1";
-    triggerRows_.push_back (row);
-    rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
-}
-
-void TriggerContentComponent::addCustomLcTrigger()
-{
-    addCustomColumns();
-    TriggerClip row;
-    row.layer = 0;
-    int nextClip = 1;
-    for (const auto& c : triggerRows_)
-        if (c.isCustom) nextClip = juce::jmax (nextClip, c.clip + 1);
-    row.clip = nextClip;
-    row.include = true;
-    row.hasOffset = true;
-    row.name = "Layer/Clip";
-    row.layerName = "Custom";
-    row.countdownTc = "00:00:00:00";
-    row.triggerRangeSec = 5.0;
-    row.durationTc = "00:00:00:00";
-    row.triggerTc = "00:00:00:00";
-    row.endActionMode = "off";
-    row.isCustom = true;
-    row.customType = "lc";
-    row.customSourceLayer = "1";
-    row.customSourceClip = "1";
-    triggerRows_.push_back (row);
-    rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
-}
-
-void TriggerContentComponent::deleteCustomTrigger (int clipIndex)
-{
-    if (! juce::isPositiveAndBelow (clipIndex, (int) triggerRows_.size()))
-        return;
-    if (! triggerRows_[(size_t) clipIndex].isCustom)
-        return;
-    const auto& c = triggerRows_[(size_t) clipIndex];
-    currentTriggerKeys_.erase ({ c.layer, c.clip });
-    pendingEndActions_.erase ({ c.layer, c.clip });
-    triggerRangeActive_.erase ({ c.layer, c.clip });
-    triggerRows_.erase (triggerRows_.begin() + clipIndex);
-    rebuildDisplayRows();
-    // updateContent WHILE custom cols still in header so JUCE clears stale components
-    triggerTable_.updateContent();
-    // If the last custom trigger was removed, clean up the custom group completely
-    if (! hasCustomGroup())
-    {
-        layerExpanded_.erase (0);
-        layerEnabled_.erase (0);
-        removeCustomColumns(); // resizes window and removes cols 10/11 from header
-    }
-    triggerTable_.repaint();
-    createCustomBtn_.setEnabled (! hasCustomGroup());
-}
-
-void TriggerContentComponent::deleteCustomGroup()
-{
-    for (auto it = triggerRows_.begin(); it != triggerRows_.end();)
-        it = it->isCustom ? triggerRows_.erase (it) : ++it;
-    for (auto it = currentTriggerKeys_.begin(); it != currentTriggerKeys_.end();)
-        it = (it->first == 0) ? currentTriggerKeys_.erase (it) : ++it;
-    for (auto it = pendingEndActions_.begin(); it != pendingEndActions_.end();)
-        it = (it->first.first == 0) ? pendingEndActions_.erase (it) : ++it;
-    for (auto it = triggerRangeActive_.begin(); it != triggerRangeActive_.end();)
-        it = (it->first.first == 0) ? triggerRangeActive_.erase (it) : ++it;
-    layerExpanded_.erase (0);
-    layerEnabled_.erase (0);
-
-    // Rebuild display first so refreshComponentForCell sees no custom rows.
-    rebuildDisplayRows();
-
-    // Call updateContent WHILE cols 10-12 still exist: JUCE calls
-    // refreshComponentForCell for those cols on every (now-regular) row,
-    // gets nullptr back, and removes the stale custom-row components.
-    triggerTable_.updateContent();
-
-    // Now remove the columns and resize the window.
-    removeCustomColumns();
-
-    triggerTable_.repaint();
-    createCustomBtn_.setEnabled (true);
-}
-
-void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
-{
-    const auto targets = collectResolumeSendTargets();
-
-    juce::String addr;
-    if (clip.customType == "col")
-    {
-        const int col = clip.customSourceCol.getIntValue();
-        if (col > 0)
-            addr = "/composition/columns/" + juce::String (col) + "/connect";
-    }
-    else if (clip.customType == "lc")
-    {
-        const int lay = clip.customSourceLayer.getIntValue();
-        const int clp = clip.customSourceClip.getIntValue();
-        if (lay > 0 && clp > 0)
-            addr = "/composition/layers/" + juce::String (lay)
-                   + "/clips/" + juce::String (clp) + "/connect";
-    }
-
-    if (addr.isEmpty())
-        return;
-
-    for (const auto& target : targets)
-        sendOscPulse (target, addr);
-}
-
-void TriggerContentComponent::openGetClipsOptions()
-{
-    new GetClipsOptionsWindow (includeClipsWithOffset_,
-                               includeClipsWithoutOffset_,
-                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (bool includeWithOffset, bool includeWithoutOffset)
-                               {
-                                   if (safe != nullptr)
-                                       safe->queryResolume (includeWithOffset, includeWithoutOffset);
-                               },
-                               getParentComponent());
-}
-
-void TriggerContentComponent::queryResolume (bool includeClipsWithOffset, bool includeClipsWithoutOffset)
-{
-    juce::String err;
-    includeClipsWithOffset_ = includeClipsWithOffset;
-    includeClipsWithoutOffset_ = includeClipsWithoutOffset;
-    clipReceiveEnabled_ = true;
-    clipCollector_.clear();
-    const auto listenIp = resolumeListenIp_.getText().trim().isNotEmpty() ? resolumeListenIp_.getText().trim() : "127.0.0.1";
-    if (! clipCollector_.startListening (listenIp, juce::jlimit (1, 65535, resolumeListenPort_.getText().getIntValue()), err))
-    {
-        setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
-        return;
-    }
-    auto targets = collectResolumeSendTargets();
-    if (targets.empty())
-        targets.push_back ({ "0.0.0.0", "127.0.0.1", 7000 });
-    if (! clipCollector_.configureSender (targets.front().localBindIp, targets.front().ip, targets.front().port, err))
-    {
-        setResolumeStatusText (err, juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
-        return;
-    }
-    const int maxLayers = juce::jlimit (1, 64, resolumeMaxLayers_.getText().getIntValue());
-    const int maxClips = juce::jlimit (1, 256, resolumeMaxClips_.getText().getIntValue());
-    clipCollector_.queryClips (maxLayers, maxClips);
-    // macOS may occasionally drop part of a large UDP query burst.
-    // Send two delayed retries to make clip collection deterministic.
-    for (int i = 1; i <= 2; ++i)
-    {
-        juce::Timer::callAfterDelay (160 * i,
-                                     [safe = juce::Component::SafePointer<TriggerContentComponent> (this), maxLayers, maxClips]
-                                     {
-                                         if (safe == nullptr || ! safe->clipReceiveEnabled_)
-                                             return;
-                                         safe->clipCollector_.queryClips (maxLayers, maxClips);
-                                     });
-    }
-    queryPending_ = true;
-    queryStartMs_ = juce::Time::currentTimeMillis();
-    juce::String modeText;
-    if (includeClipsWithOffset_ && includeClipsWithoutOffset_)
-        modeText = "all clips";
-    else if (includeClipsWithOffset_)
-        modeText = "clips with offset";
-    else if (includeClipsWithoutOffset_)
-        modeText = "clips without offset";
-    else
-        modeText = "no clips";
-
-    setResolumeStatusText ("Resolume query sent: " + modeText,
-                           juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
-}
-
-void TriggerContentComponent::resetSettings()
-{
-    // Stop active engines before resetting
-    bridgeEngine_.stopLtcThru();
-    bridgeEngine_.stopLtcOutput();
-    bridgeEngine_.stopLtcInput();
-
-    // Source
-    sourceCombo_.setSelectedId (1, juce::dontSendNotification);
-    sourceExpanded_    = true;
-    triggerOutExpanded_ = false;
-    outLtcExpanded_    = false;
-    resolumeExpanded_  = false;
-    sourceExpandBtn_.setExpanded   (sourceExpanded_);
-    triggerOutExpandBtn_.setExpanded (triggerOutExpanded_);
-    outLtcExpandBtn_.setExpanded   (outLtcExpanded_);
-    resolumeExpandBtn_.setExpanded (resolumeExpanded_);
-
-    // LTC In
-    ltcInDriverCombo_.setSelectedId  (1, juce::dontSendNotification);
-    ltcOutDriverCombo_.setSelectedId (1, juce::dontSendNotification);
-    refreshLtcDeviceListsByDriver();
-    ltcInDeviceCombo_.setSelectedId  (0, juce::dontSendNotification);
-    ltcInChannelCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcInSampleRateCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcInGainSlider_.setValue (0.0, juce::dontSendNotification);
-
-    // LTC Out
-    ltcOutDeviceCombo_.setSelectedId (0, juce::dontSendNotification);
-    ltcOutChannelCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOutSampleRateCombo_.setSelectedId (1, juce::dontSendNotification);
-    ltcOffsetEditor_.setText  ("00:00:00:00", juce::dontSendNotification);
-    ltcOutLevelSlider_.setValue (0.0, juce::dontSendNotification);
-    ltcOutSwitch_.setState (false);
-    ltcThruDot_.setState   (false);
-
-    // MTC / ArtNet / OSC
-    mtcInCombo_.setSelectedId      (0, juce::dontSendNotification);
-    artnetInCombo_.setSelectedId   (0, juce::dontSendNotification);
-    artnetListenIpEditor_.setText  ("0.0.0.0",  juce::dontSendNotification);
-    oscIpEditor_.setText           ("0.0.0.0",  juce::dontSendNotification);
-    oscPortEditor_.setText         ("9000",      juce::dontSendNotification);
-    // OSC addresses: restore the same defaults as at startup
-    oscAddrStrEditor_.setText      ("/frames/str", juce::dontSendNotification);
-    oscAddrFloatEditor_.setText    ("/time",       juce::dontSendNotification);
-    oscFloatTypeCombo_.setSelectedId (1,         juce::dontSendNotification);
-    oscFloatMaxEditor_.setText     ("3600",      juce::dontSendNotification);
-
-    // Resolume
-    resolumeAdapterCombo_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendAdapterCombo1_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendAdapterCombo2_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendAdapterCombo3_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendAdapterCombo4_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendAdapterCombo5_.setSelectedId (1, juce::dontSendNotification);
-    resolumeSendIp_.setText        ("127.0.0.1", juce::dontSendNotification);
-    resolumeSendPort_.setText      ("7000",       juce::dontSendNotification);
-    resolumeSendTargetCount_ = 1;
-    resolumeSendExpanded1_ = true;
-    resolumeSendExpanded2_ = false;
-    resolumeSendExpanded3_ = false;
-    resolumeSendExpanded4_ = false;
-    resolumeSendExpanded5_ = false;
-    resolumeSendExpandBtn1_.setExpanded (resolumeSendExpanded1_);
-    resolumeSendExpandBtn2_.setExpanded (resolumeSendExpanded2_);
-    resolumeSendExpandBtn3_.setExpanded (resolumeSendExpanded3_);
-    resolumeSendExpandBtn4_.setExpanded (resolumeSendExpanded4_);
-    resolumeSendExpandBtn5_.setExpanded (resolumeSendExpanded5_);
-    resolumeSendIp2_.setText       ("127.0.0.1", juce::dontSendNotification);
-    resolumeSendPort2_.setText     ("7000",       juce::dontSendNotification);
-    resolumeSendIp3_.setText       ("127.0.0.1", juce::dontSendNotification);
-    resolumeSendPort3_.setText     ("7000",       juce::dontSendNotification);
-    resolumeSendIp4_.setText       ("127.0.0.1", juce::dontSendNotification);
-    resolumeSendPort4_.setText     ("7000",       juce::dontSendNotification);
-    resolumeSendIp5_.setText       ("127.0.0.1", juce::dontSendNotification);
-    resolumeSendPort5_.setText     ("7000",       juce::dontSendNotification);
-    resolumeListenIp_.setText      ("127.0.0.1", juce::dontSendNotification);
-    resolumeListenPort_.setText    ("7001",       juce::dontSendNotification);
-    resolumeMaxLayers_.setText     ("4",          juce::dontSendNotification);
-    resolumeMaxClips_.setText      ("32",         juce::dontSendNotification);
-    resolumeGlobalOffset_.setText  ("00:00:00:00", juce::dontSendNotification);
-    syncResolumeListenIpWithAdapter();
-
-    updateWindowHeight();
-    resized();
-    repaint();
-    juce::Timer::callAfterDelay (50, [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
-    {
-        if (auto* self = safe.getComponent())
-        {
-            self->onInputSettingsChanged();
-            self->onOutputSettingsChanged();
-        }
-    });
-    setTimecodeStatusText ("Settings reset to defaults", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-}
-
-void TriggerContentComponent::openSettingsMenu()
-{
-    juce::PopupMenu m;
-    m.addItem (1, "Save settings...");
-    m.addItem (2, "Save clips...");
-    m.addItem (3, "Save all...");
-    m.addSeparator();
-    m.addItem (4, "Load settings...");
-    m.addItem (5, "Load clips...");
-    m.addItem (6, "Load all...");
-    m.addSeparator();
-    m.addItem (7, "Rescan audio devices");
-    m.addSeparator();
-    m.addItem (10, "Clear custom triggers", hasCustomGroup());
-    m.addItem (11, "Clear clip triggers", ! triggerRows_.empty());
-    m.addItem (12, "Reset settings");
-    m.addSeparator();
-    m.addItem (8, "Load on startup", true, autoLoadOnStartup_);
-    m.addItem (9, "Close to tray", true, closeToTray_);
-
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton_),
-                     [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (int result)
-                     {
-                         if (safe == nullptr)
-                             return;
-
-                         switch (result)
-                         {
-                             case 1: safe->saveConfigAs (kConfigModeSettings); break;
-                             case 2: safe->saveConfigAs (kConfigModeClips); break;
-                             case 3: safe->saveConfigAs (kConfigModeAll); break;
-                             case 4: safe->loadConfigFrom (kConfigModeSettings); break;
-                             case 5: safe->loadConfigFrom (kConfigModeClips); break;
-                             case 6: safe->loadConfigFrom (kConfigModeAll); break;
-                             case 7:
-                                 safe->startAudioDeviceScan();
-                                 safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-                                 break;
-                             case 10:
-                                 if (safe->hasCustomGroup())
-                                 {
-                                     safe->deleteCustomGroup();
-                                     safe->setTimecodeStatusText ("Custom triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-                                 }
-                                 break;
-                             case 11:
-                             {
-                                 // Stop receiving Resolume OSC updates so custom triggers
-                                 // cannot cause refreshTriggerRows() to recreate clips.
-                                 safe->clipReceiveEnabled_ = false;
-                                 safe->clipCollector_.clear();
-                                 // Remove all non-custom clips and their state
-                                 for (auto it = safe->triggerRows_.begin(); it != safe->triggerRows_.end();)
-                                     it = (! it->isCustom) ? safe->triggerRows_.erase (it) : ++it;
-                                 for (auto it = safe->currentTriggerKeys_.begin(); it != safe->currentTriggerKeys_.end();)
-                                     it = (it->first != 0) ? safe->currentTriggerKeys_.erase (it) : ++it;
-                                 for (auto it = safe->pendingEndActions_.begin(); it != safe->pendingEndActions_.end();)
-                                     it = (it->first.first != 0) ? safe->pendingEndActions_.erase (it) : ++it;
-                                 for (auto it = safe->triggerRangeActive_.begin(); it != safe->triggerRangeActive_.end();)
-                                     it = (it->first.first != 0) ? safe->triggerRangeActive_.erase (it) : ++it;
-                                 safe->rebuildDisplayRows();
-                                 safe->triggerTable_.updateContent();
-                                 safe->triggerTable_.repaint();
-                                 safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-                                 break;
-                             }
-                             case 12:
-                                 safe->resetSettings();
-                                 break;
-                             case 8:
-                                 safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
-                                 safe->saveRuntimePrefs();
-                                 safe->setTimecodeStatusText (safe->autoLoadOnStartup_ ? "Load on startup ON" : "Load on startup OFF",
-                                                              juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-                                 break;
-                             case 9:
-                                 safe->closeToTray_ = ! safe->closeToTray_;
-                                 safe->saveRuntimePrefs();
-                                 safe->setTimecodeStatusText (safe->closeToTray_ ? "Close to tray ON" : "Close to tray OFF",
-                                                              juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-                                 break;
-                             default:
-                                 break;
-                         }
-                     });
-}
-
-void TriggerContentComponent::loadRuntimePrefs()
-{
-    if (auto prefs = bridge::core::ConfigStore::loadJsonFile (getRuntimePrefsFile()))
-    {
-        if (auto* obj = prefs->getDynamicObject())
-        {
-            if (obj->hasProperty ("close_to_tray"))
-                closeToTray_ = (bool) obj->getProperty ("close_to_tray");
-            if (obj->hasProperty ("auto_load_on_startup"))
-                autoLoadOnStartup_ = (bool) obj->getProperty ("auto_load_on_startup");
-            if (obj->hasProperty ("last_config_path"))
-            {
-                const auto path = obj->getProperty ("last_config_path").toString();
-                if (path.isNotEmpty())
-                    lastConfigFile_ = juce::File (path);
-            }
-        }
-    }
-
-    pendingAutoLoad_ = autoLoadOnStartup_ && lastConfigFile_.existsAsFile();
-}
-
-void TriggerContentComponent::saveRuntimePrefs() const
-{
-    auto* obj = new juce::DynamicObject();
-    obj->setProperty ("close_to_tray", closeToTray_);
-    obj->setProperty ("auto_load_on_startup", autoLoadOnStartup_);
-    obj->setProperty ("last_config_path", lastConfigFile_.getFullPathName());
-    bridge::core::ConfigStore::saveJsonFile (getRuntimePrefsFile(), juce::var (obj));
-}
-
-void TriggerContentComponent::maybeAutoLoadConfig()
-{
-    if (pendingAutoLoad_ && lastConfigFile_.existsAsFile())
-    {
-        pendingAutoLoad_ = false;
-        loadConfigFromFile (lastConfigFile_, kConfigModeAll);
-    }
-}
-
-void TriggerContentComponent::saveConfigAs (int modeId)
-{
-    const juce::String label = modeId == kConfigModeSettings ? "settings"
-                             : modeId == kConfigModeClips ? "clips"
-                                                          : "all";
-
-    saveChooser_ = std::make_unique<juce::FileChooser> (
-        "Save Easy Trigger " + label,
-        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("easy_trigger_" + label + ".etr"),
-        "*.etr");
-
-    saveChooser_->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this), modeId] (const juce::FileChooser& chooser)
-                               {
-                                   if (safe == nullptr)
-                                       return;
-                                   auto file = chooser.getResult();
-                                   if (file == juce::File{})
-                                       return;
-                                   if (! file.hasFileExtension (".etr"))
-                                       file = file.withFileExtension (".etr");
-                                   safe->saveConfigToFile (file, modeId);
-                                   safe->saveChooser_.reset();
-                               });
-}
-
-void TriggerContentComponent::loadConfigFrom (int modeId)
-{
-    loadChooser_ = std::make_unique<juce::FileChooser> (
-        "Load Easy Trigger config",
-        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
-        "*.etr");
-
-    loadChooser_->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                               [safe = juce::Component::SafePointer<TriggerContentComponent> (this), modeId] (const juce::FileChooser& chooser)
-                               {
-                                   if (safe == nullptr)
-                                       return;
-                                   auto file = chooser.getResult();
-                                   if (file != juce::File{})
-                                       safe->loadConfigFromFile (file, modeId);
-                                   safe->loadChooser_.reset();
-                               });
-}
-
-void TriggerContentComponent::saveConfigToFile (const juce::File& file, int modeId)
-{
-    auto* rootObj = new juce::DynamicObject();
-    rootObj->setProperty ("app", "Easy Trigger");
-    rootObj->setProperty ("format", "etr");
-    rootObj->setProperty ("mode", configModeKey (modeId));
-    rootObj->setProperty ("version", bridge::version::kAppVersion);
-
-    if (modeId == kConfigModeSettings || modeId == kConfigModeAll)
-    {
-        auto* leftObj = new juce::DynamicObject();
-        leftObj->setProperty ("source", sourceCombo_.getSelectedId());
-        leftObj->setProperty ("source_expanded", sourceExpanded_);
-        leftObj->setProperty ("trigger_out_expanded", triggerOutExpanded_);
-        leftObj->setProperty ("out_ltc_expanded", outLtcExpanded_);
-        leftObj->setProperty ("resolume_expanded", resolumeExpanded_);
-        leftObj->setProperty ("ltc_in_driver", ltcInDriverCombo_.getText());
-        leftObj->setProperty ("ltc_in_device", ltcInDeviceCombo_.getText());
-        leftObj->setProperty ("ltc_in_channel", ltcInChannelCombo_.getText());
-        leftObj->setProperty ("ltc_in_rate", ltcInSampleRateCombo_.getText());
-        leftObj->setProperty ("ltc_in_gain", ltcInGainSlider_.getValue());
-        leftObj->setProperty ("mtc_in", mtcInCombo_.getText());
-        leftObj->setProperty ("artnet_in", artnetInCombo_.getText());
-        leftObj->setProperty ("artnet_listen_ip", artnetListenIpEditor_.getText());
-        leftObj->setProperty ("osc_adapter", oscAdapterCombo_.getText());
-        leftObj->setProperty ("osc_ip", oscIpEditor_.getText());
-        leftObj->setProperty ("osc_port", oscPortEditor_.getText());
-        leftObj->setProperty ("osc_fps", oscFpsCombo_.getText());
-        leftObj->setProperty ("osc_str", oscAddrStrEditor_.getText());
-        leftObj->setProperty ("osc_float", oscAddrFloatEditor_.getText());
-        leftObj->setProperty ("osc_float_type", oscFloatTypeCombo_.getSelectedId());
-        leftObj->setProperty ("osc_float_max", oscFloatMaxEditor_.getText());
-        leftObj->setProperty ("ltc_out_driver", ltcOutDriverCombo_.getText());
-        leftObj->setProperty ("ltc_out_device", ltcOutDeviceCombo_.getText());
-        leftObj->setProperty ("ltc_out_channel", ltcOutChannelCombo_.getText());
-        leftObj->setProperty ("ltc_out_rate", ltcOutSampleRateCombo_.getText());
-        leftObj->setProperty ("ltc_out_convert_fps", ltcConvertStrip_.getSelectedFps().has_value() ? frameRateToString (*ltcConvertStrip_.getSelectedFps()) : juce::String());
-        leftObj->setProperty ("ltc_out_offset", ltcOffsetEditor_.getText());
-        leftObj->setProperty ("ltc_out_level", ltcOutLevelSlider_.getValue());
-        leftObj->setProperty ("ltc_out_enabled", ltcOutSwitch_.getState());
-        leftObj->setProperty ("ltc_out_thru", ltcThruDot_.getState());
-        leftObj->setProperty ("res_adapter", resolumeAdapterCombo_.getText());
-        leftObj->setProperty ("res_send_adapter_1", resolumeSendAdapterCombo1_.getText());
-        leftObj->setProperty ("res_send_ip", resolumeSendIp_.getText());
-        leftObj->setProperty ("res_send_port", resolumeSendPort_.getText());
-        leftObj->setProperty ("res_send_target_count", resolumeSendTargetCount_);
-        leftObj->setProperty ("res_send_expanded_1", resolumeSendExpanded1_);
-        leftObj->setProperty ("res_send_adapter_2", resolumeSendAdapterCombo2_.getText());
-        leftObj->setProperty ("res_send_ip_2", resolumeSendIp2_.getText());
-        leftObj->setProperty ("res_send_port_2", resolumeSendPort2_.getText());
-        leftObj->setProperty ("res_send_expanded_2", resolumeSendExpanded2_);
-        leftObj->setProperty ("res_send_adapter_3", resolumeSendAdapterCombo3_.getText());
-        leftObj->setProperty ("res_send_ip_3", resolumeSendIp3_.getText());
-        leftObj->setProperty ("res_send_port_3", resolumeSendPort3_.getText());
-        leftObj->setProperty ("res_send_expanded_3", resolumeSendExpanded3_);
-        leftObj->setProperty ("res_send_adapter_4", resolumeSendAdapterCombo4_.getText());
-        leftObj->setProperty ("res_send_ip_4", resolumeSendIp4_.getText());
-        leftObj->setProperty ("res_send_port_4", resolumeSendPort4_.getText());
-        leftObj->setProperty ("res_send_expanded_4", resolumeSendExpanded4_);
-        leftObj->setProperty ("res_send_adapter_5", resolumeSendAdapterCombo5_.getText());
-        leftObj->setProperty ("res_send_ip_5", resolumeSendIp5_.getText());
-        leftObj->setProperty ("res_send_port_5", resolumeSendPort5_.getText());
-        leftObj->setProperty ("res_send_expanded_5", resolumeSendExpanded5_);
-        leftObj->setProperty ("res_listen_ip", resolumeListenIp_.getText());
-        leftObj->setProperty ("res_listen_port", resolumeListenPort_.getText());
-        leftObj->setProperty ("res_max_layers", resolumeMaxLayers_.getText());
-        leftObj->setProperty ("res_max_clips", resolumeMaxClips_.getText());
-        leftObj->setProperty ("res_global_offset", resolumeGlobalOffset_.getText());
-        rootObj->setProperty ("left", juce::var (leftObj));
-    }
-
-    if (modeId == kConfigModeClips || modeId == kConfigModeAll)
-    {
-        juce::Array<juce::var> rows;
-        for (const auto& clip : triggerRows_)
-        {
-            auto* rowObj = new juce::DynamicObject();
-            rowObj->setProperty ("layer", clip.layer);
-            rowObj->setProperty ("clip", clip.clip);
-            rowObj->setProperty ("include", clip.include);
-            rowObj->setProperty ("has_offset", clip.hasOffset);
-            rowObj->setProperty ("name", clip.name);
-            rowObj->setProperty ("layer_name", clip.layerName);
-            rowObj->setProperty ("trigger_range_sec", clip.triggerRangeSec);
-            rowObj->setProperty ("duration_tc", clip.durationTc);
-            rowObj->setProperty ("trigger_tc", clip.triggerTc);
-            rowObj->setProperty ("end_action_mode", clip.endActionMode);
-            rowObj->setProperty ("end_action_col", clip.endActionCol);
-            rowObj->setProperty ("end_action_layer", clip.endActionLayer);
-            rowObj->setProperty ("end_action_clip", clip.endActionClip);
-            rowObj->setProperty ("is_custom", clip.isCustom);
-            if (clip.isCustom)
-            {
-                rowObj->setProperty ("custom_type", clip.customType);
-                rowObj->setProperty ("custom_source_col", clip.customSourceCol);
-                rowObj->setProperty ("custom_source_layer", clip.customSourceLayer);
-                rowObj->setProperty ("custom_source_clip", clip.customSourceClip);
-            }
-            rows.add (juce::var (rowObj));
-        }
-        rootObj->setProperty ("clips", juce::var (rows));
-        if (hasCustomGroup())
-            rootObj->setProperty ("custom_group_name", customGroupName_);
-    }
-
-    if (bridge::core::ConfigStore::saveJsonFile (file, juce::var (rootObj)))
-    {
-        lastConfigFile_ = file;
-        saveRuntimePrefs();
-        setTimecodeStatusText ("Config saved: " + file.getFileName(), juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-    }
-    else
-    {
-        setTimecodeStatusText ("Failed to save config", juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
-    }
-}
-
-void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int modeId)
-{
-    auto parsed = bridge::core::ConfigStore::loadJsonFile (file);
-    if (! parsed.has_value() || ! parsed->isObject())
-    {
-        setTimecodeStatusText ("Invalid config", juce::Colour::fromRGB (0xde, 0x9b, 0x3c));
-        return;
-    }
-
-    auto* rootObj = parsed->getDynamicObject();
-    if (rootObj == nullptr)
-        return;
-
-    auto setComboText = [] (juce::ComboBox& combo, const juce::String& text)
-    {
-        for (int i = 0; i < combo.getNumItems(); ++i)
-        {
-            if (combo.getItemText (i) == text)
-            {
-                combo.setSelectedItemIndex (i, juce::dontSendNotification);
-                return;
-            }
-        }
-    };
-
-    if ((modeId == kConfigModeSettings || modeId == kConfigModeAll) && rootObj->hasProperty ("left"))
-    {
-        if (auto* leftObj = rootObj->getProperty ("left").getDynamicObject())
-        {
-            sourceCombo_.setSelectedId ((int) leftObj->getProperty ("source"), juce::dontSendNotification);
-            sourceExpanded_ = (bool) leftObj->getProperty ("source_expanded");
-            triggerOutExpanded_ = leftObj->hasProperty ("trigger_out_expanded") ? (bool) leftObj->getProperty ("trigger_out_expanded") : false;
-            outLtcExpanded_ = (bool) leftObj->getProperty ("out_ltc_expanded");
-            resolumeExpanded_ = (bool) leftObj->getProperty ("resolume_expanded");
-
-            setComboText (ltcInDriverCombo_, leftObj->getProperty ("ltc_in_driver").toString());
-            setComboText (ltcOutDriverCombo_, leftObj->getProperty ("ltc_out_driver").toString());
-            refreshLtcDeviceListsByDriver();
-            setComboText (ltcInDeviceCombo_, leftObj->getProperty ("ltc_in_device").toString());
-            refreshLtcChannelCombos();
-            setComboText (ltcInChannelCombo_, leftObj->getProperty ("ltc_in_channel").toString());
-            setComboText (ltcInSampleRateCombo_, leftObj->getProperty ("ltc_in_rate").toString());
-            ltcInGainSlider_.setValue ((double) leftObj->getProperty ("ltc_in_gain"), juce::dontSendNotification);
-            setComboText (mtcInCombo_, leftObj->getProperty ("mtc_in").toString());
-            setComboText (artnetInCombo_, leftObj->getProperty ("artnet_in").toString());
-            artnetListenIpEditor_.setText (leftObj->getProperty ("artnet_listen_ip").toString(), juce::dontSendNotification);
-            setComboText (oscAdapterCombo_, leftObj->getProperty ("osc_adapter").toString());
-            oscIpEditor_.setText (leftObj->getProperty ("osc_ip").toString(), juce::dontSendNotification);
-            oscPortEditor_.setText (leftObj->getProperty ("osc_port").toString(), juce::dontSendNotification);
-            setComboText (oscFpsCombo_, leftObj->getProperty ("osc_fps").toString());
-            oscAddrStrEditor_.setText (leftObj->getProperty ("osc_str").toString(), juce::dontSendNotification);
-            oscAddrFloatEditor_.setText (leftObj->getProperty ("osc_float").toString(), juce::dontSendNotification);
-            if (leftObj->hasProperty ("osc_float_type"))
-                oscFloatTypeCombo_.setSelectedId ((int) leftObj->getProperty ("osc_float_type"), juce::dontSendNotification);
-            if (leftObj->hasProperty ("osc_float_max"))
-                oscFloatMaxEditor_.setText (leftObj->getProperty ("osc_float_max").toString(), juce::dontSendNotification);
-
-            setComboText (ltcOutDeviceCombo_, leftObj->getProperty ("ltc_out_device").toString());
-            refreshLtcChannelCombos();
-            setComboText (ltcOutChannelCombo_, leftObj->getProperty ("ltc_out_channel").toString());
-            setComboText (ltcOutSampleRateCombo_, leftObj->getProperty ("ltc_out_rate").toString());
-            if (leftObj->hasProperty ("ltc_out_convert_fps"))
-            {
-                auto fps = fpsFromString (leftObj->getProperty ("ltc_out_convert_fps").toString());
-                ltcConvertStrip_.setSelectedFps (fps);
-                bridgeEngine_.setLtcOutputConvertFps (fps);
-            }
-            ltcOffsetEditor_.setText (leftObj->getProperty ("ltc_out_offset").toString(), juce::dontSendNotification);
-            ltcOutLevelSlider_.setValue ((double) leftObj->getProperty ("ltc_out_level"), juce::dontSendNotification);
-            ltcOutSwitch_.setState ((bool) leftObj->getProperty ("ltc_out_enabled"));
-            ltcThruDot_.setState ((bool) leftObj->getProperty ("ltc_out_thru"));
-
-            setComboText (resolumeAdapterCombo_, leftObj->hasProperty ("res_adapter") ? leftObj->getProperty ("res_adapter").toString()
-                                                                                      : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            setComboText (resolumeSendAdapterCombo1_, leftObj->hasProperty ("res_send_adapter_1") ? leftObj->getProperty ("res_send_adapter_1").toString()
-                                                                                                   : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            resolumeSendIp_.setText (leftObj->getProperty ("res_send_ip").toString(), juce::dontSendNotification);
-            resolumeSendPort_.setText (leftObj->getProperty ("res_send_port").toString(), juce::dontSendNotification);
-            resolumeSendTargetCount_ = juce::jlimit (1, 5, (int) leftObj->getProperty ("res_send_target_count"));
-            if (! leftObj->hasProperty ("res_send_target_count"))
-                resolumeSendTargetCount_ = 1;
-            resolumeSendExpanded1_ = leftObj->hasProperty ("res_send_expanded_1") ? (bool) leftObj->getProperty ("res_send_expanded_1") : true;
-            resolumeSendIp2_.setText (leftObj->hasProperty ("res_send_ip_2") ? leftObj->getProperty ("res_send_ip_2").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
-            resolumeSendPort2_.setText (leftObj->hasProperty ("res_send_port_2") ? leftObj->getProperty ("res_send_port_2").toString() : juce::String ("7000"), juce::dontSendNotification);
-            setComboText (resolumeSendAdapterCombo2_, leftObj->hasProperty ("res_send_adapter_2") ? leftObj->getProperty ("res_send_adapter_2").toString()
-                                                                                                   : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            resolumeSendExpanded2_ = leftObj->hasProperty ("res_send_expanded_2") ? (bool) leftObj->getProperty ("res_send_expanded_2") : false;
-            resolumeSendIp3_.setText (leftObj->hasProperty ("res_send_ip_3") ? leftObj->getProperty ("res_send_ip_3").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
-            resolumeSendPort3_.setText (leftObj->hasProperty ("res_send_port_3") ? leftObj->getProperty ("res_send_port_3").toString() : juce::String ("7000"), juce::dontSendNotification);
-            setComboText (resolumeSendAdapterCombo3_, leftObj->hasProperty ("res_send_adapter_3") ? leftObj->getProperty ("res_send_adapter_3").toString()
-                                                                                                   : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            resolumeSendExpanded3_ = leftObj->hasProperty ("res_send_expanded_3") ? (bool) leftObj->getProperty ("res_send_expanded_3") : false;
-            resolumeSendIp4_.setText (leftObj->hasProperty ("res_send_ip_4") ? leftObj->getProperty ("res_send_ip_4").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
-            resolumeSendPort4_.setText (leftObj->hasProperty ("res_send_port_4") ? leftObj->getProperty ("res_send_port_4").toString() : juce::String ("7000"), juce::dontSendNotification);
-            setComboText (resolumeSendAdapterCombo4_, leftObj->hasProperty ("res_send_adapter_4") ? leftObj->getProperty ("res_send_adapter_4").toString()
-                                                                                                   : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            resolumeSendExpanded4_ = leftObj->hasProperty ("res_send_expanded_4") ? (bool) leftObj->getProperty ("res_send_expanded_4") : false;
-            resolumeSendIp5_.setText (leftObj->hasProperty ("res_send_ip_5") ? leftObj->getProperty ("res_send_ip_5").toString() : juce::String ("127.0.0.1"), juce::dontSendNotification);
-            resolumeSendPort5_.setText (leftObj->hasProperty ("res_send_port_5") ? leftObj->getProperty ("res_send_port_5").toString() : juce::String ("7000"), juce::dontSendNotification);
-            setComboText (resolumeSendAdapterCombo5_, leftObj->hasProperty ("res_send_adapter_5") ? leftObj->getProperty ("res_send_adapter_5").toString()
-                                                                                                   : juce::String ("ALL INTERFACES (0.0.0.0)"));
-            resolumeSendExpanded5_ = leftObj->hasProperty ("res_send_expanded_5") ? (bool) leftObj->getProperty ("res_send_expanded_5") : false;
-            resolumeListenIp_.setText (leftObj->getProperty ("res_listen_ip").toString(), juce::dontSendNotification);
-            resolumeListenPort_.setText (leftObj->getProperty ("res_listen_port").toString(), juce::dontSendNotification);
-            resolumeMaxLayers_.setText (leftObj->getProperty ("res_max_layers").toString(), juce::dontSendNotification);
-            resolumeMaxClips_.setText (leftObj->getProperty ("res_max_clips").toString(), juce::dontSendNotification);
-            resolumeGlobalOffset_.setText (leftObj->hasProperty ("res_global_offset")
-                                               ? leftObj->getProperty ("res_global_offset").toString()
-                                               : juce::String ("00:00:00:00"),
-                                           juce::dontSendNotification);
-
-            sourceExpandBtn_.setExpanded (sourceExpanded_);
-            triggerOutExpandBtn_.setExpanded (triggerOutExpanded_);
-            outLtcExpandBtn_.setExpanded (outLtcExpanded_);
-            resolumeExpandBtn_.setExpanded (resolumeExpanded_);
-            resolumeSendExpandBtn1_.setExpanded (resolumeSendExpanded1_);
-            resolumeSendExpandBtn2_.setExpanded (resolumeSendExpanded2_);
-            resolumeSendExpandBtn3_.setExpanded (resolumeSendExpanded3_);
-            resolumeSendExpandBtn4_.setExpanded (resolumeSendExpanded4_);
-            resolumeSendExpandBtn5_.setExpanded (resolumeSendExpanded5_);
-            syncResolumeListenIpWithAdapter();
-            // Update layout and paint immediately so the UI reflects loaded state
-            // before audio device init blocks the message thread.
-            updateWindowHeight();
-            resized();
-            repaint();
-            juce::Timer::callAfterDelay (50, [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
-            {
-                if (auto* self = safe.getComponent())
-                {
-                    self->onInputSettingsChanged();
-                    self->onOutputSettingsChanged();
-                }
-            });
-        }
-    }
-
-    if ((modeId == kConfigModeClips || modeId == kConfigModeAll) && rootObj->hasProperty ("clips"))
-    {
-        triggerRows_.clear();
-        if (auto* arr = rootObj->getProperty ("clips").getArray())
-        {
-            for (const auto& entry : *arr)
-            {
-                if (auto* rowObj = entry.getDynamicObject())
-                {
-                    TriggerClip clip;
-                    clip.layer = (int) rowObj->getProperty ("layer");
-                    clip.clip = (int) rowObj->getProperty ("clip");
-                    clip.include = (bool) rowObj->getProperty ("include");
-                    clip.name = rowObj->getProperty ("name").toString();
-                    clip.layerName = rowObj->getProperty ("layer_name").toString();
-                    clip.triggerRangeSec = (double) rowObj->getProperty ("trigger_range_sec");
-                    clip.durationTc = rowObj->getProperty ("duration_tc").toString();
-                    clip.triggerTc = rowObj->getProperty ("trigger_tc").toString();
-                    clip.endActionMode = rowObj->getProperty ("end_action_mode").toString();
-                    clip.endActionCol = rowObj->getProperty ("end_action_col").toString();
-                    clip.endActionLayer = rowObj->getProperty ("end_action_layer").toString();
-                    clip.endActionClip = rowObj->getProperty ("end_action_clip").toString();
-                    clip.isCustom = rowObj->hasProperty ("is_custom") && (bool) rowObj->getProperty ("is_custom");
-                    clip.hasOffset = rowObj->hasProperty ("has_offset")
-                        ? (bool) rowObj->getProperty ("has_offset")
-                        : clip.isCustom;
-                    if (clip.isCustom)
-                        clip.hasOffset = true;
-                    if (clip.isCustom)
-                    {
-                        clip.customType = rowObj->getProperty ("custom_type").toString();
-                        if (clip.customType.isEmpty()) clip.customType = "col";
-                        clip.customSourceCol   = rowObj->getProperty ("custom_source_col").toString();
-                        clip.customSourceLayer = rowObj->getProperty ("custom_source_layer").toString();
-                        clip.customSourceClip  = rowObj->getProperty ("custom_source_clip").toString();
-                    }
-                    triggerRows_.push_back (clip);
-                }
-            }
-        }
-        if (hasCustomGroup())
-        {
-            addCustomColumns();
-            customGroupName_ = rootObj->hasProperty ("custom_group_name")
-                                   ? rootObj->getProperty ("custom_group_name").toString()
-                                   : juce::String ("Custom Trigger");
-        }
-        rebuildDisplayRows();
-        triggerTable_.updateContent();
-        triggerTable_.repaint();
-        createCustomBtn_.setEnabled (! hasCustomGroup());
-    }
-
-    updateWindowHeight();
-    resized();
-    repaint();
-    lastConfigFile_ = file;
-    saveRuntimePrefs();
-    setTimecodeStatusText ("Config loaded: " + file.getFileName(), juce::Colour::fromRGB (0xec, 0x48, 0x3c));
-}
-
-juce::String TriggerContentComponent::secondsToTc (double sec, FrameRate fps)
-{
-    const int nominal = juce::jmax (1, frameRateToInt (fps));
-    int totalFrames = (int) juce::roundToInt (juce::jmax (0.0, sec) * (double) nominal);
-    const int ff = totalFrames % nominal;
-    totalFrames /= nominal;
-    const int ss = totalFrames % 60;
-    totalFrames /= 60;
-    const int mm = totalFrames % 60;
-    totalFrames /= 60;
-    const int hh = totalFrames % 24;
-    return juce::String::formatted ("%02d:%02d:%02d:%02d", hh, mm, ss, ff);
-}
-
-MainWindow::MainWindow()
-    : juce::DocumentWindow ("Easy Trigger",
-                            juce::Colours::black,
-                            juce::DocumentWindow::minimiseButton | juce::DocumentWindow::maximiseButton | juce::DocumentWindow::closeButton)
-{
-    setColour (juce::ResizableWindow::backgroundColourId, juce::Colour::fromRGB (0x11, 0x12, 0x16));
-    setUsingNativeTitleBar (true);
-    setResizable (true, true);
-    // Min width: left panel (390) + margins (34) + table columns min sum (712) + scrollbar (8) + padding (16)
-    setResizeLimits (1160, 428, 10000, 10000);
-    setContentOwned (new TriggerContentComponent(), true);
-    const auto icon = loadTriggerAppIcon();
-    if (icon.isValid())
-        setIcon (icon);
-    createTrayIcon();
-    if (trayIcon_ != nullptr && icon.isValid())
-        trayIcon_->setIconImage (icon, icon);
-    centreWithSize (1240, 828);
-    setVisible (true);
-#if JUCE_WINDOWS
-    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainWindow> (this)]
-    {
-        if (safe != nullptr)
-            applyNativeDarkTitleBar (*safe);
-    });
-#endif
-}
-
-MainWindow::~MainWindow()
-{
-    trayIcon_.reset();
-}
-
-void MainWindow::closeButtonPressed()
-{
-    if (quittingFromMenu_)
-    {
-        setVisible (false); // hide immediately to prevent white flash on fullscreen close
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
-        return;
-    }
-
-    bool closeToTray = false;
-    if (auto* content = dynamic_cast<TriggerContentComponent*> (getContentComponent()))
-        closeToTray = content->closeToTrayEnabled();
-
-    if (closeToTray)
-    {
-        setVisible (false);
-        if (trayIcon_ != nullptr)
-            trayIcon_->showInfoBubble ("Easy Trigger", "Running in system tray");
-        return;
-    }
-
-    setVisible (false); // hide immediately to prevent white flash on fullscreen close
-    juce::JUCEApplication::getInstance()->systemRequestedQuit();
-}
-
-void MainWindow::prepareForShutdown()
-{
-    juce::ModalComponentManager::getInstance()->cancelAllModalComponents();
-    setVisible (false);
-    if (trayIcon_ != nullptr)
-        trayIcon_->setVisible (false);
-}
-
-void MainWindow::createTrayIcon()
-{
-    trayIcon_ = std::make_unique<TriggerTrayIcon> (*this);
-    trayIcon_->setIconTooltip ("Easy Trigger");
-}
-
-void MainWindow::showFromTray()
-{
-    setVisible (true);
-    setMinimised (false);
-    toFront (true);
-}
-
-void MainWindow::quitFromTray()
-{
-    quittingFromMenu_ = true;
-    juce::JUCEApplication::getInstance()->systemRequestedQuit();
-}
 } // namespace trigger

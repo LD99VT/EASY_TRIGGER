@@ -94,7 +94,11 @@ target_sources(EasyTrigger PRIVATE
   Source/App.cpp
   Source/App.h
   Source/TriggerMainWindow.cpp
+  Source/trigger/TriggerCustomCRUD.cpp
+  Source/ui/TriggerMenuHandlers.cpp
+  Source/core/TriggerConfigIO.cpp
   Source/TriggerMainWindow.h
+  Source/trigger/CustomTriggerState.h
   Source/engine/ResolumeClipCollector.cpp
   Source/engine/ResolumeClipCollector.h
   ${_appicon_rc}

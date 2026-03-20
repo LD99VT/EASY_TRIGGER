@@ -9,6 +9,7 @@ namespace
 {
 const std::regex kClipParamRe (R"(^/composition/layers/(\d+)/clips/(\d+)/transport/position/behaviour/(offset|duration)$)");
 const std::regex kClipTransportTypeRe (R"(^/composition/layers/(\d+)/clips/(\d+)/transporttype$)");
+const std::regex kClipTransportPositionRe (R"(^/composition/layers/(\d+)/clips/(\d+)/transport/position$)");
 const std::regex kClipConnectRe (R"(^/composition/layers/(\d+)/clips/(\d+)/(?:connect|connected|transport/position/behaviour/connect|transport/position/behaviour/connected)$)");
 const std::regex kClipNameRe (R"(^/composition/layers/(\d+)/clips/(\d+)/name$)");
 const std::regex kLayerNameRe (R"(^/composition/layers/(\d+)/name$)");
@@ -64,24 +65,57 @@ ResolumeClipCollector::~ResolumeClipCollector()
 
 bool ResolumeClipCollector::startListening (const juce::String& listenIp, int listenPort, juce::String& errorOut)
 {
-    // NOTE: juce::OSCReceiver::connect() binds to all interfaces (0.0.0.0).
-    // The listenIp parameter is kept in the API for future use, but JUCE does
-    // not expose a per-interface bind for OSCReceiver. If you need to restrict
-    // the listening interface, replace OSCReceiver with a raw DatagramSocket
-    // (see OscInput.cpp for an example).
-    juce::ignoreUnused (listenIp);
     stopListening();
-    if (! connect (listenPort))
+
+    receiveSocket_ = std::make_unique<juce::DatagramSocket> (true);
+    const auto requestedIp = listenIp.trim().isNotEmpty() ? listenIp.trim() : juce::String ("0.0.0.0");
+
+    bool bound = false;
+    juce::String boundIp;
+
+    auto tryBind = [this, listenPort, &bound, &boundIp] (const juce::String& ip)
     {
-        errorOut = "Resolume listen failed";
+        if (bound)
+            return;
+
+        bool ok = false;
+        if (ip == "0.0.0.0")
+            ok = receiveSocket_->bindToPort (listenPort);
+        else
+            ok = receiveSocket_->bindToPort (listenPort, ip);
+
+        if (ok)
+        {
+            bound = true;
+            boundIp = ip;
+        }
+    };
+
+    tryBind (requestedIp);
+
+    if (! bound && requestedIp != "0.0.0.0")
+        tryBind ("0.0.0.0");
+
+    if (! bound && requestedIp != "127.0.0.1")
+        tryBind ("127.0.0.1");
+
+    if (! bound || ! connectToSocket (*receiveSocket_))
+    {
+        disconnect();
+        receiveSocket_.reset();
+        errorOut = "Resolume listen failed on port " + juce::String (listenPort)
+            + " (requested IP: " + requestedIp + ")";
         return false;
     }
+
+    juce::ignoreUnused (boundIp);
     return true;
 }
 
 void ResolumeClipCollector::stopListening()
 {
     disconnect();
+    receiveSocket_.reset();
 }
 
 bool ResolumeClipCollector::configureSender (const juce::String& localBindIp, const juce::String& sendIp, int sendPort, juce::String& errorOut)
@@ -189,6 +223,8 @@ void ResolumeClipCollector::oscBundleReceived (const juce::OSCBundle& bundle)
 
 void ResolumeClipCollector::handleMessage (const juce::OSCMessage& msg)
 {
+    if (onRawMessage) onRawMessage (msg);
+
     std::smatch m;
     const auto addr = msg.getAddressPattern().toString().toStdString();
 
@@ -235,6 +271,24 @@ void ResolumeClipCollector::handleMessage (const juce::OSCMessage& msg)
             }
             if (onChanged) onChanged();
         }
+        return;
+    }
+
+    if (std::regex_match (addr, m, kClipTransportPositionRe) && m.size() >= 3)
+    {
+        const int layer = juce::String (m[1].str()).getIntValue();
+        const int clip = juce::String (m[2].str()).getIntValue();
+
+        {
+            const juce::ScopedLock sl (lock_);
+            touchClip (layer, clip);
+            for (auto& [key, raw] : clips_)
+            {
+                if (key.first == layer)
+                    raw.connected = (key.second == clip);
+            }
+        }
+        if (onChanged) onChanged();
         return;
     }
 

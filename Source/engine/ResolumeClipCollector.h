@@ -36,6 +36,7 @@ public:
     void clear();
 
     std::function<void()> onChanged;
+    std::function<void (const juce::OSCMessage&)> onRawMessage;
 
 private:
     void oscMessageReceived (const juce::OSCMessage& msg) override;
@@ -44,6 +45,7 @@ private:
     void touchClip (int layer, int clip);
 
     juce::OSCSender sender_;
+    std::unique_ptr<juce::DatagramSocket> receiveSocket_;
     std::unique_ptr<juce::DatagramSocket> sendSocket_;
     bool senderReady_ { false };
 

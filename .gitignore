@@ -13,3 +13,4 @@ dist/
 Installer/*.exe
 Installer/*.dmg
 .DS_Store
+._*

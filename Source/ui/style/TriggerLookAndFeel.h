@@ -40,7 +40,7 @@ public:
         if (isSeparator)
         {
             auto r = area.reduced (10, area.getHeight() / 2);
-            g.setColour (juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+            g.setColour (kControlOutline);
             g.drawLine ((float) r.getX(), (float) r.getY(), (float) r.getRight(), (float) r.getY(), 1.0f);
             return;
         }
@@ -127,18 +127,30 @@ public:
         auto bounds = button.getLocalBounds().toFloat();
         auto c = button.findColour (juce::TextButton::buttonColourId);
         const auto text = button.getButtonText().trim();
+        const bool isFlatMenuButton = button.getProperties().contains ("flatMenuButton");
         const bool isPlusMinus = (text == "+" || text == "-");
         if (isPlusMinus)
         {
             const float side = juce::jmin (28.0f, juce::jmin (bounds.getWidth() - 6.0f, bounds.getHeight() - 6.0f));
             bounds = juce::Rectangle<float> (0, 0, side, side).withCentre (bounds.getCentre());
-            c = juce::Colour::fromRGB (0x2a, 0x2a, 0x2a);
-            if (isMouseOverButton || isButtonDown)
-                c = isButtonDown ? kTeal.darker (0.15f) : kTeal;
+            c = kControlFill;
+            if (isButtonDown)
+                c = c.darker (0.15f);
+            else if (isMouseOverButton)
+                c = c.brighter (0.12f);
             g.setColour (c);
             g.fillRoundedRectangle (bounds, 5.0f);
-            g.setColour (juce::Colour::fromRGB (0x4a, 0x4a, 0x4a));
-            g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
+            return;
+        }
+
+        if (isFlatMenuButton)
+        {
+            if (isMouseOverButton || isButtonDown)
+            {
+                const auto fill = isButtonDown ? kMenuPressed : kMenuHover;
+                g.setColour (fill);
+                g.fillRoundedRectangle (bounds.reduced (0.5f), 5.0f);
+            }
             return;
         }
 
@@ -150,7 +162,7 @@ public:
 
         g.setColour (c);
         g.fillRoundedRectangle (bounds, 5.0f);
-        g.setColour (juce::Colour::fromRGB (0x2f, 0x2f, 0x2f));
+        g.setColour (kRowOutline);
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
     }
 
@@ -172,7 +184,9 @@ public:
         auto sq = juce::Rectangle<float> (0, 0, side, side).withCentre (bounds.getCentre());
         const float cx = sq.getCentreX();
         const float cy = sq.getCentreY();
-        const auto icon = (isMouseOverButton || isButtonDown) ? kBg : juce::Colour::fromRGB (0x90, 0x90, 0x90);
+        auto icon = kControlIcon;
+        if (isMouseOverButton || isButtonDown)
+            icon = icon.brighter (0.4f);
 
         g.setColour (icon);
         g.fillRect (juce::Rectangle<float> (cx - 5.5f, cy - 1.0f, 11.0f, 2.0f));

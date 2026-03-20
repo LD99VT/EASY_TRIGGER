@@ -21,13 +21,59 @@
 #include "ui/style/TriggerColours.h"
 #include "ui/style/TriggerLookAndFeel.h"
 #include "ui/style/StyleHelpers.h"
+#include "ui/windows/NativeWindowUtils.h"
 #include "ui/widgets/CircleButtons.h"
 #include "ui/widgets/DotToggle.h"
 #include "ui/widgets/MacSwitch.h"
 #include "ui/widgets/LevelMeter.h"
+#include "trigger/CustomTriggerState.h"
 
 namespace trigger
 {
+// ─── OSC Console log ─────────────────────────────────────────────────────────
+struct OscLogEntry
+{
+    enum class Dir { input, output };
+    Dir           dir { Dir::input };
+    juce::int64   timestampMs { 0 };
+    juce::String  ip;
+    int           port { 0 };
+    juce::String  address;
+    juce::String  type;   // "i32", "f32", "str", "bang"
+    juce::String  value;
+};
+
+class OscLog
+{
+public:
+    static constexpr int kMaxEntries = 300;
+
+    void push (OscLogEntry e)
+    {
+        const juce::ScopedLock sl (lock_);
+        entries_.push_back (std::move (e));
+        if ((int) entries_.size() > kMaxEntries)
+            entries_.erase (entries_.begin());
+    }
+
+    std::vector<OscLogEntry> snapshot() const
+    {
+        const juce::ScopedLock sl (lock_);
+        return entries_;
+    }
+
+    void clear()
+    {
+        const juce::ScopedLock sl (lock_);
+        entries_.clear();
+    }
+
+private:
+    std::vector<OscLogEntry>  entries_;
+    mutable juce::CriticalSection lock_;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 class FpsIndicatorStrip final : public juce::Component
 {
 public:
@@ -66,6 +112,7 @@ public:
     ~TriggerContentComponent() override;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
     void mouseUp (const juce::MouseEvent& event) override;
     bool closeToTrayEnabled() const noexcept { return closeToTray_; }
@@ -87,14 +134,21 @@ private:
         juce::String endActionCol;
         juce::String endActionLayer;
         juce::String endActionClip;
+        juce::String endActionGroup;
         bool hasOffset { false };
         bool connected { false };
+        bool testHighlight { false };
         bool timecodeHit { false };
         bool isCustom { false };
+        int customGroupId { 0 };
+        int customClipId { 0 };
+        int orderIndex { 0 };
         juce::String customType { "col" };
         juce::String customSourceCol;
         juce::String customSourceLayer;
         juce::String customSourceClip;
+        juce::String customSourceGroup;
+        int sendTargetIndex { 0 }; // 0 = All, 1..N = specific Send target
     };
     struct DisplayRow
     {
@@ -110,6 +164,16 @@ private:
     juce::Component* refreshComponentForCell (int rowNumber, int columnId, bool isRowSelected, juce::Component* existingComponentToUpdate) override;
     void cellClicked (int rowNumber, int columnId, const juce::MouseEvent& event) override;
     void cellDoubleClicked (int rowNumber, int columnId, const juce::MouseEvent& event) override;
+    void showRowContextMenu (int rowNumber);
+    void openFileMenu();
+    void openManageMenu();
+    void openViewMenu();
+    void openHelpMenu();
+    void clearCustomTriggers();
+    void clearClipTriggers();
+    void clearAllGroups();
+    void expandAllGroups (bool expanded);
+    void resetTableLayout();
 
     void loadFonts();
     void applyTheme();
@@ -131,14 +195,41 @@ private:
     void loadConfigFromFile (const juce::File& file, int modeId);
     int calcPreferredHeight() const;
     int calcHeightForState (bool sourceExpanded, int sourceId, bool triggerOutExpanded, bool outLtcExpanded, bool resolumeExpanded) const;
-    void updateWindowHeight();
+    void updateWindowHeight (bool forceGrow = true);
     void refreshTriggerRows();
+    void syncTriggerRowFeedbackFromCollector();
     void rebuildDisplayRows();
     bool hasCustomGroup() const;
+    bool hasCustomGroupsAtLimit() const;
+    trigger::model::CustomTriggerGroup* findCustomGroupById (int groupId);
+    const trigger::model::CustomTriggerGroup* findCustomGroupById (int groupId) const;
+    void syncCustomGroupStateFromLayers();
+    void syncLayerStateFromCustomGroups();
+    void ensureCustomColumnsState();
+    int nextCustomGroupId() const;
+    int nextCustomClipId() const;
+    int nextCustomClipOrder (int groupId) const;
+    int addCustomGroup();
+    void addCustomColTriggerToGroup (int groupId);
+    void addCustomLcTriggerToGroup (int groupId);
+    void addCustomGcTriggerToGroup (int groupId);
+    void deleteCustomGroup (int groupId);
+    void deleteLayerGroup (int layer);
+    void moveCustomGroup (int groupId, int delta);
+    void moveCustomClip (int clipIndex, int delta);
+    void moveLayerGroup (int layer, int delta);
+    void moveClipRow (int clipIndex, int delta);
+    void normaliseLayerOrder();
+    void moveCustomGroupToOrder (int groupId, int newOrder);
+    void moveCustomClipToOrder (int clipIndex, int newOrder);
+    void beginCustomDrag (bool draggingGroup, int identifier);
+    void updateCustomDrag (juce::Point<int> tablePoint);
+    void endCustomDrag (juce::Point<int> tablePoint);
     void addCustomColTrigger();
     void addCustomLcTrigger();
+    void addCustomGcTrigger();
     void deleteCustomTrigger (int clipIndex);
-    void deleteCustomGroup();
+    void deleteTriggerRow (int clipIndex);
     void fireCustomTrigger (const TriggerClip& clip);
     void updateTableColumnWidths();
     void addCustomColumns();
@@ -165,20 +256,32 @@ private:
     void toggleSendAdapterExpanded (int index);
     void addResolumeSendTarget();
     void removeResolumeSendTarget (int targetIndex);
+    int clampSendTargetIndex (int index) const;
+    void populateSendTargetCombo (juce::ComboBox& combo, int selectedIndex) const;
     struct ResolumeSendTarget
     {
         juce::String localBindIp;
         juce::String ip;
         int port { 7000 };
     };
+    std::optional<ResolumeSendTarget> getConfiguredResolumeSendTarget (int oneBasedIndex) const;
     std::vector<ResolumeSendTarget> collectResolumeSendTargets() const;
-    bool sendOscPulse (const ResolumeSendTarget& target, const juce::String& addr) const;
-    void sendTestTrigger (int layer, int clip);
+    std::vector<ResolumeSendTarget> collectResolumeSendTargets (int sendTargetIndex) const;
+    static juce::String makeResolumeSendTargetKey (const ResolumeSendTarget& target);
+    static juce::String describeResolumeSendTarget (const ResolumeSendTarget& target);
+    void updateSendTargetRuntimeState (const ResolumeSendTarget& target, bool ok, const juce::String& detail);
+    bool sendOscPulse (const ResolumeSendTarget& target, const juce::String& addr);
+    void sendTestTrigger (int layer, int clip, int sendTargetIndex);
     static juce::String secondsToTc (double sec, FrameRate fps);
     static bool parseTcToFrames (const juce::String& tc, int fps, int& outFrames);
     void setTimecodeStatusText (const juce::String& text, juce::Colour colour);
     void setResolumeStatusText (const juce::String& text, juce::Colour colour);
+    void setNetworkStatusText (const juce::String& text, juce::Colour colour);
+    void updateNetworkStatusIndicator();
+    void logGetClipsDiagnostic (const juce::String& message) const;
+    juce::File getGetClipsDiagnosticLogFile() const;
     void openStatusMonitorWindow();
+    void openPreferencesWindow();
 
     bridge::engine::BridgeEngine bridgeEngine_;
     trigger::engine::ResolumeClipCollector clipCollector_;
@@ -195,12 +298,17 @@ private:
     std::vector<DisplayRow> displayRows_;
     std::map<int, bool> layerExpanded_;
     std::map<int, bool> layerEnabled_;
+    std::map<int, int> layerOrder_;
+    std::set<int> deletedLayers_;
     std::set<std::pair<int, int>> currentTriggerKeys_;
     std::map<std::pair<int, int>, bool> triggerRangeActive_;
     int lastInputFrames_ { 0 };
     bool hasLastInputFrames_ { false };
     double lastTriggerFireTs_ { 0.0 };
     juce::Component::SafePointer<juce::Component> statusMonitor_;
+    juce::Component::SafePointer<juce::Component> preferencesWindow_;
+    juce::Component::SafePointer<juce::Component> getClipsOptionsWindow_;
+    mutable OscLog oscLog_;
 
     struct PendingEndAction
     {
@@ -209,8 +317,16 @@ private:
         juce::String col;
         juce::String layer;
         juce::String clip;
+        juce::String group;
     };
     std::map<std::pair<int, int>, PendingEndAction> pendingEndActions_;
+    struct SendTargetRuntimeState
+    {
+        bool ok { false };
+        juce::String detail { "-" };
+        juce::int64 lastTxMs { 0 };
+    };
+    std::map<juce::String, SendTargetRuntimeState> sendTargetRuntimeStates_;
 
     juce::Font headerBold_;
     juce::Font headerLight_;
@@ -233,6 +349,7 @@ private:
     juce::Label tcLabel_              { {}, "00:00:00:00" };
     std::unique_ptr<FpsIndicatorStrip> fpsIndicatorStrip_;
     juce::Label resolumeStatusLabel_  { {}, "Resolume idle" };
+    juce::Label networkStatusLabel_   { {}, "OSC idle" };
     juce::Label statusLabel_          { {}, "STOPPED" };
     juce::Label sourceHeaderLabel_    { {}, "Source" };
     juce::Label triggerOutHeaderLabel_{ {}, "Trigger Out" };
@@ -277,11 +394,17 @@ private:
     juce::Label resSendIpLbl3_     { {}, "Send 3:" };
     juce::Label resSendIpLbl4_     { {}, "Send 4:" };
     juce::Label resSendIpLbl5_     { {}, "Send 5:" };
+    juce::Label resSendIpLbl6_     { {}, "Send 6:" };
+    juce::Label resSendIpLbl7_     { {}, "Send 7:" };
+    juce::Label resSendIpLbl8_     { {}, "Send 8:" };
     juce::Label resSendAdapterLbl1_{ {}, "Adapter:" };
     juce::Label resSendAdapterLbl2_{ {}, "Adapter:" };
     juce::Label resSendAdapterLbl3_{ {}, "Adapter:" };
     juce::Label resSendAdapterLbl4_{ {}, "Adapter:" };
     juce::Label resSendAdapterLbl5_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl6_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl7_{ {}, "Adapter:" };
+    juce::Label resSendAdapterLbl8_{ {}, "Adapter:" };
     juce::Label resSendPortLbl_    { {}, "Send port:" };
     juce::Label resListenIpLbl_    { {}, "Listen IP:" };
     juce::Label resListenPortLbl_  { {}, "Listen port:" };
@@ -324,11 +447,17 @@ private:
     ExpandCircleButton resolumeSendExpandBtn3_;
     ExpandCircleButton resolumeSendExpandBtn4_;
     ExpandCircleButton resolumeSendExpandBtn5_;
+    ExpandCircleButton resolumeSendExpandBtn6_;
+    ExpandCircleButton resolumeSendExpandBtn7_;
+    ExpandCircleButton resolumeSendExpandBtn8_;
     juce::ComboBox resolumeSendAdapterCombo1_;
     juce::ComboBox resolumeSendAdapterCombo2_;
     juce::ComboBox resolumeSendAdapterCombo3_;
     juce::ComboBox resolumeSendAdapterCombo4_;
     juce::ComboBox resolumeSendAdapterCombo5_;
+    juce::ComboBox resolumeSendAdapterCombo6_;
+    juce::ComboBox resolumeSendAdapterCombo7_;
+    juce::ComboBox resolumeSendAdapterCombo8_;
     juce::TextEditor resolumeSendIp_;
     juce::TextEditor resolumeSendPort_;
     juce::TextEditor resolumeSendIp2_;
@@ -339,11 +468,20 @@ private:
     juce::TextEditor resolumeSendPort4_;
     juce::TextEditor resolumeSendIp5_;
     juce::TextEditor resolumeSendPort5_;
-    juce::TextButton resolumeAddTargetBtn_  { "+" };
-    juce::TextButton resolumeDelTargetBtn2_ { "-" };
-    juce::TextButton resolumeDelTargetBtn3_ { "-" };
-    juce::TextButton resolumeDelTargetBtn4_ { "-" };
-    juce::TextButton resolumeDelTargetBtn5_ { "-" };
+    juce::TextEditor resolumeSendIp6_;
+    juce::TextEditor resolumeSendPort6_;
+    juce::TextEditor resolumeSendIp7_;
+    juce::TextEditor resolumeSendPort7_;
+    juce::TextEditor resolumeSendIp8_;
+    juce::TextEditor resolumeSendPort8_;
+    trigger::FlatIconButton resolumeAddTargetBtn_  { "+" };
+    trigger::FlatIconButton resolumeDelTargetBtn2_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn3_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn4_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn5_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn6_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn7_ { "-" };
+    trigger::FlatIconButton resolumeDelTargetBtn8_ { "-" };
     juce::TextEditor resolumeListenIp_;
     juce::TextEditor resolumeListenPort_;
     juce::TextEditor resolumeMaxLayers_;
@@ -355,8 +493,15 @@ private:
     bool resolumeSendExpanded3_ { false };
     bool resolumeSendExpanded4_ { false };
     bool resolumeSendExpanded5_ { false };
+    bool resolumeSendExpanded6_ { false };
+    bool resolumeSendExpanded7_ { false };
+    bool resolumeSendExpanded8_ { false };
     juce::TextButton getTriggersBtn_  { "Get Clips" };
-    juce::TextButton createCustomBtn_ { "Create Custom Trigger" };
+    juce::TextButton createCustomBtn_ { "Create Custom Triggers" };
+    juce::TextButton fileMenuBtn_     { "File" };
+    juce::TextButton manageMenuBtn_   { "Manage" };
+    juce::TextButton viewMenuBtn_     { "View" };
+    juce::TextButton helpMenuBtn_     { "Help" };
     juce::TextButton settingsButton_  { "Settings" };
     juce::TextButton quitButton_      { "Quit" };
 
@@ -365,9 +510,11 @@ private:
     juce::Array<juce::Rectangle<int>> sectionRowRects_;
     juce::Array<juce::Rectangle<int>> rightSectionRects_;
     juce::Rectangle<int> headerRect_;
+    juce::Rectangle<int> menuBarRect_;
     juce::Rectangle<int> timerRect_;
     juce::Rectangle<int> statusBarRect_;
     juce::Rectangle<int> statusLeftRect_;
+    juce::Rectangle<int> statusCenterRect_;
     juce::Rectangle<int> statusRightRect_;
     juce::Rectangle<int> leftViewportRect_;
     juce::Viewport leftViewport_;
@@ -389,9 +536,30 @@ private:
     bool clipReceiveEnabled_ { false };
     bool includeClipsWithOffset_ { true };
     bool includeClipsWithoutOffset_ { false };
+    bool clipRefreshQueued_ { false };
+    juce::int64 clipRefreshDueMs_ { 0 };
+    bool clipFeedbackDirty_ { false };
+    juce::int64 clipFeedbackDueMs_ { 0 };
+    juce::int64 clipImportQuietUntilMs_ { 0 };
+    int rawOscDiagnosticLogsRemaining_ { 0 };
+    bool rawOscDiagnosticSuppressedLogged_ { false };
+    bool oscListenOk_ { false };
+    bool oscSendOk_ { false };
+    juce::String oscListenState_ { "idle" };
+    juce::String oscSendState_ { "idle" };
+    juce::String oscListenDetail_ { "-" };
+    juce::String oscSendDetail_ { "-" };
+    juce::int64 lastOscInMs_ { 0 };
+    juce::int64 lastOscOutMs_ { 0 };
+    int lastOscInPort_ { 0 };
+    int lastOscOutPort_ { 0 };
     bool colWidthGuard_      { false };
 
-    juce::String customGroupName_ { "Custom Trigger" };
+    std::vector<trigger::model::CustomTriggerGroup> customGroups_;
+    bool dragActive_ { false };
+    bool dragGroup_ { false };
+    int dragIdentifier_ { 0 };
+    int dragHoverRow_ { -1 };
 
     juce::Colour bg_    { kBg };
     juce::Colour row_   { kRow };

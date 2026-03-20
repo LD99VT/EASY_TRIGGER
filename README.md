@@ -14,7 +14,7 @@ It shares the same LTC/MTC/ArtNet/OSC input core as Easy Bridge, but is focused 
 
 ## Screenshot
 
-![Easy Trigger UI](screenshots/New%20Shot.png)
+![Easy Trigger UI](screenshots/NEW%202-7-0.png)
 
 ---
 ## Supported timecode input

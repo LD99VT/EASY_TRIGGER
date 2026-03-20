@@ -59,15 +59,24 @@ jobs:
             ForEach-Object { Join-Path $_.FullName "x64\Microsoft.VC143.CRT" } |
             Where-Object { Test-Path $_ } |
             Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($runtimeDir)) { throw "Microsoft.VC143.CRT not found under any VS 2022 installation in: $vsRoot" }
           $vcRedist = $vsEditions |
             ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC\v143\vc_redist.x64.exe" } |
             Where-Object { Test-Path $_ } |
             Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($vcRedist)) { throw "vc_redist.x64.exe not found under any VS 2022 installation in: $vsRoot" }
-          Write-Host "Using runtime dir: $runtimeDir"
-          Write-Host "Using vc_redist: $vcRedist"
-          & $iscc "/DVcRuntimeDir=$runtimeDir" "/DVcRedistExe=$vcRedist" installer_trigger.iss
+          $isccArgs = @()
+          if (![string]::IsNullOrWhiteSpace($runtimeDir)) {
+            Write-Host "Using runtime dir: $runtimeDir"
+            $isccArgs += "/DVcRuntimeDir=$runtimeDir"
+          } else {
+            Write-Warning "Microsoft.VC143.CRT not found under VS 2022; building installer without app-local CRT bundle."
+          }
+          if (![string]::IsNullOrWhiteSpace($vcRedist)) {
+            Write-Host "Using vc_redist: $vcRedist"
+            $isccArgs += "/DVcRedistExe=$vcRedist"
+          } else {
+            Write-Warning "vc_redist.x64.exe not found under VS 2022; building installer without bundled vc_redist."
+          }
+          & $iscc @isccArgs installer_trigger.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
       - name: Upload Artifact

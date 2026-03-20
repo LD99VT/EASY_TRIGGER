@@ -47,10 +47,14 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Source: "{#BuildDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 ; App-local MSVC runtime so the app starts on clean machines without VC++ redist installed
+#ifexist "{#VcRuntimeDir}\vcruntime140.dll"
 Source: "{#VcRuntimeDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 
 ; Official Microsoft Visual C++ Redistributable bundled for system-wide install on clean machines
+#ifexist "{#VcRedistExe}"
 Source: "{#VcRedistExe}"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion
+#endif
 
 ; Fonts folder
 Source: "Fonts\*"; DestDir: "{app}\Fonts"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -66,7 +70,9 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
+#ifexist "{#VcRedistExe}"
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ Runtime..."; Flags: waituntilterminated skipifdoesntexist
+#endif
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Easy Trigger"" dir=in action=allow enable=yes program=""{app}\{#AppExe}"" profile=any"; StatusMsg: "Adding Windows Firewall rule..."; Flags: runhidden waituntilterminated
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Easy Trigger Out"" dir=out action=allow enable=yes program=""{app}\{#AppExe}"" profile=any"; StatusMsg: "Adding Windows Firewall rule..."; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

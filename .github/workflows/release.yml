@@ -50,7 +50,8 @@ jobs:
           if (!(Test-Path $iscc)) { throw "Inno Setup not found: $iscc" }
           $vsRoot = "C:\Program Files (x86)\Microsoft Visual Studio\2022"
           if (!(Test-Path $vsRoot)) { throw "Visual Studio 2022 root not found: $vsRoot" }
-          $runtimeDir = Get-ChildItem $vsRoot -Directory |
+          $vsEditions = Get-ChildItem $vsRoot -Directory
+          $runtimeDir = $vsEditions |
             ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC" } |
             Where-Object { Test-Path $_ } |
             ForEach-Object { Get-ChildItem $_ -Directory } |
@@ -59,10 +60,13 @@ jobs:
             Where-Object { Test-Path $_ } |
             Select-Object -First 1
           if ([string]::IsNullOrWhiteSpace($runtimeDir)) { throw "Microsoft.VC143.CRT not found under any VS 2022 installation in: $vsRoot" }
-          $vcRedist = Get-ChildItem $vsRoot -Recurse -Filter "vc_redist.x64.exe" -File |
-            Sort-Object FullName -Descending |
-            Select-Object -ExpandProperty FullName -First 1
+          $vcRedist = $vsEditions |
+            ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC\v143\vc_redist.x64.exe" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
           if ([string]::IsNullOrWhiteSpace($vcRedist)) { throw "vc_redist.x64.exe not found under any VS 2022 installation in: $vsRoot" }
+          Write-Host "Using runtime dir: $runtimeDir"
+          Write-Host "Using vc_redist: $vcRedist"
           & $iscc "/DVcRuntimeDir=$runtimeDir" "/DVcRedistExe=$vcRedist" installer_trigger.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 

@@ -6,8 +6,12 @@
 #define AppExe "Easy Trigger.exe"
 #define AppPublisher "LUA"
 #define BuildDir "build\windows-msvc\EasyTrigger_artefacts\Release"
+#ifndef VcRuntimeDir
 #define VcRuntimeDir "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\14.44.35112\x64\Microsoft.VC143.CRT"
+#endif
+#ifndef VcRedistExe
 #define VcRedistExe "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\v143\vc_redist.x64.exe"
+#endif
 
 [Setup]
 AppName={#AppName}

@@ -20,9 +20,9 @@ AppPublisher={#AppPublisher}
 AppId={{A7E3B2C1-5F4D-4B8A-8E0F-C1D2E3F4A5B6}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
-OutputBaseFilename=EasyTrigger_Setup_{#AppVersion}_release270
+OutputBaseFilename=EasyTrigger_Setup_{#AppVersion}
 OutputDir=Installer\repack
-SetupIconFile=Source\Icon.ico
+SetupIconFile=Icon\Icon Trigger.ico
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2
 SolidCompression=yes
@@ -78,8 +78,8 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""E
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Easy Trigger"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Easy Trigger Out"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Easy Trigger"""; Flags: runhidden waituntilterminated; RunOnceId: "EasyTriggerFirewallIn"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Easy Trigger Out"""; Flags: runhidden waituntilterminated; RunOnceId: "EasyTriggerFirewallOut"
 
 [Code]
 // Kill the running application before install

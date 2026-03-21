@@ -279,10 +279,10 @@ void TriggerContentComponent::resetSettings()
     pendingEndActions_.clear();
     triggerRangeActive_.clear();
     rebuildDisplayRows();
-    triggerTable_.updateContent();
+    refreshTriggerTableContent();
     updateWindowHeight (false);  // relax resize limits before removeCustomColumns
     ensureCustomColumnsState();
-    triggerTable_.repaint();
+    repaintTriggerTable();
 
     resized();
     repaint();
@@ -321,8 +321,7 @@ void TriggerContentComponent::clearClipTriggers()
     for (auto it = triggerRangeActive_.begin(); it != triggerRangeActive_.end();)
         it = (it->first.first != 0) ? triggerRangeActive_.erase (it) : ++it;
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
     updateWindowHeight (false);
     resized();
     repaint();
@@ -366,12 +365,12 @@ void TriggerContentComponent::clearAllGroups()
 
     // Single rebuild at the end
     rebuildDisplayRows();
-    triggerTable_.updateContent();
+    refreshTriggerTableContent();
     // Relax resize limits BEFORE removing custom columns so that
     // removeCustomColumns() → setSize() is not silently clamped by the old minW.
     updateWindowHeight (false);
     ensureCustomColumnsState();
-    triggerTable_.repaint();
+    repaintTriggerTable();
     resized();
     repaint();
     setTimecodeStatusText ("All triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
@@ -383,8 +382,7 @@ void TriggerContentComponent::expandAllGroups (bool expanded)
         value = expanded;
     syncCustomGroupStateFromLayers();
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::resetTableLayout()
@@ -403,8 +401,7 @@ void TriggerContentComponent::resetTableLayout()
     h.addColumn ("Test",      10,  56,  56, 56, juce::TableHeaderComponent::notResizable);
     ensureCustomColumnsState();
     updateTableColumnWidths();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::openFileMenu()
@@ -545,7 +542,11 @@ void TriggerContentComponent::openHelpMenu()
     juce::PopupMenu m;
     m.addItem (1, "Open Help");
     m.addItem (2, "Open Config Folder");
-    m.addItem (3, "About");
+    if (updateAvailable_ && availableVersion_.isNotEmpty())
+        m.addItem (3, "Update Now (v" + availableVersion_ + ")");
+    else
+        m.addItem (3, "Check for Updates");
+    m.addItem (4, "About");
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&helpMenuBtn_),
                      [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (int result)
                      {
@@ -561,6 +562,13 @@ void TriggerContentComponent::openHelpMenu()
                              getRuntimePrefsFile().getParentDirectory().startAsProcess();
                          }
                          else if (result == 3)
+                         {
+                             if (safe->updateAvailable_)
+                                 safe->showUpdatePrompt();
+                             else
+                                 safe->requestUpdateCheck (true);
+                         }
+                         else if (result == 4)
                          {
                              auto* parent = safe.getComponent();
                              if (parent == nullptr)
@@ -632,8 +640,7 @@ void TriggerContentComponent::openSettingsMenu()
                                  for (auto it = safe->triggerRangeActive_.begin(); it != safe->triggerRangeActive_.end();)
                                      it = (it->first.first != 0) ? safe->triggerRangeActive_.erase (it) : ++it;
                                  safe->rebuildDisplayRows();
-                                 safe->triggerTable_.updateContent();
-                                 safe->triggerTable_.repaint();
+                                 safe->refreshTriggerTableContent();
                                  safe->setTimecodeStatusText ("Clip triggers cleared", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
                              }

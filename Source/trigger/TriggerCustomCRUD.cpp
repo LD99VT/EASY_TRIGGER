@@ -263,8 +263,7 @@ int TriggerContentComponent::addCustomGroup()
     trigger::model::normaliseGroupOrder (customGroups_);
     ensureCustomColumnsState();
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
     return groupId;
 }
 
@@ -295,8 +294,7 @@ void TriggerContentComponent::addCustomColTriggerToGroup (int groupId)
     row.customSourceCol = "1";
     triggerRows_.push_back (row);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::addCustomLcTriggerToGroup (int groupId)
@@ -327,8 +325,7 @@ void TriggerContentComponent::addCustomLcTriggerToGroup (int groupId)
     row.customSourceClip = "1";
     triggerRows_.push_back (row);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::addCustomColTrigger()
@@ -377,8 +374,7 @@ void TriggerContentComponent::addCustomGcTriggerToGroup (int groupId)
     row.customSourceCol = "1";
     triggerRows_.push_back (row);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::addCustomGcTrigger()
@@ -412,7 +408,7 @@ void TriggerContentComponent::deleteCustomTrigger (int clipIndex)
         }
     }
     rebuildDisplayRows();
-    triggerTable_.updateContent();
+    refreshTriggerTableContent();
     bool groupStillExists = false;
     for (const auto& clip : triggerRows_)
         if (clip.isCustom && clip.customGroupId == groupId)
@@ -421,7 +417,7 @@ void TriggerContentComponent::deleteCustomTrigger (int clipIndex)
         deleteCustomGroup (groupId);
     else
         ensureCustomColumnsState();
-    triggerTable_.repaint();
+    repaintTriggerTable();
 }
 
 void TriggerContentComponent::deleteTriggerRow (int clipIndex)
@@ -461,8 +457,7 @@ void TriggerContentComponent::deleteTriggerRow (int clipIndex)
     }
 
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::deleteCustomGroup (int groupId)
@@ -483,10 +478,10 @@ void TriggerContentComponent::deleteCustomGroup (int groupId)
                          customGroups_.end());
     trigger::model::normaliseGroupOrder (customGroups_);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
+    refreshTriggerTableContent();
     updateWindowHeight (false);
     ensureCustomColumnsState();
-    triggerTable_.repaint();
+    repaintTriggerTable();
     resized();
     repaint();
 }
@@ -514,8 +509,7 @@ void TriggerContentComponent::deleteLayerGroup (int layer)
     deletedLayers_.insert (layer);
     normaliseLayerOrder();
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveCustomGroup (int groupId, int delta)
@@ -542,8 +536,7 @@ void TriggerContentComponent::moveCustomGroup (int groupId, int delta)
     group->orderIndex = newIndex;
     trigger::model::normaliseGroupOrder (customGroups_);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveCustomGroupToOrder (int groupId, int newOrder)
@@ -570,8 +563,7 @@ void TriggerContentComponent::moveCustomGroupToOrder (int groupId, int newOrder)
     group->orderIndex = clamped;
     trigger::model::normaliseGroupOrder (customGroups_);
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveCustomClip (int clipIndex, int delta)
@@ -616,8 +608,7 @@ void TriggerContentComponent::moveCustomClip (int clipIndex, int delta)
         row.clip = i + 1;
     }
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveLayerGroup (int layer, int delta)
@@ -658,8 +649,7 @@ void TriggerContentComponent::moveLayerGroup (int layer, int delta)
     }
 
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveClipRow (int clipIndex, int delta)
@@ -712,8 +702,7 @@ void TriggerContentComponent::moveClipRow (int clipIndex, int delta)
         triggerRows_[(size_t) indices[(size_t) i]].orderIndex = i;
 
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::moveCustomClipToOrder (int clipIndex, int newOrder)
@@ -762,8 +751,7 @@ void TriggerContentComponent::moveCustomClipToOrder (int clipIndex, int newOrder
         row.clip = i + 1;
     }
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::beginCustomDrag (bool draggingGroup, int identifier)
@@ -919,4 +907,3 @@ void TriggerContentComponent::fireCustomTrigger (const TriggerClip& clip)
 }
 
 } // namespace trigger
-

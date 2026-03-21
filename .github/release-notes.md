@@ -1,21 +1,21 @@
-## Easy Trigger 2.7.0
+## Easy Trigger 2.7.1
 
-### Playback and trigger fixes
+### Playback, Resolume and monitoring
 
 - Fixed large forward timecode jumps so starting playback from the middle no longer fires every cue between the old and new position.
-- Improved row highlight ownership so live Resolume feedback overrides temporary Test highlighting correctly.
-- Tightened popup handling so Get Clips, Set, and End Action editors do not open duplicate windows.
+- Improved Resolume `Get Clips`, OSC diagnostics, and live feedback handling.
+- Expanded multi-output monitoring in the status bar and Status Monitor with clearer per-target reporting.
+- Improved highlight ownership so live Resolume feedback correctly overrides temporary test highlighting.
 
-### Resolume and OSC improvements
+### UI and workflow
 
-- Reworked Get Clips diagnostics with clearer `port busy`, `no reply`, and send/listen conflict reporting.
-- Added safer Resolume listener startup with bind fallbacks and explicit protection against using the same send and listen port.
-- Improved live Resolume feedback handling and reduced UI stalls after clip import by batching table refresh work.
-- Expanded monitoring for multiple Trigger Out targets with compact status-bar summaries and per-target details in Status Monitor.
-- Reworked Trigger Status Monitor into a two-column diagnostics view with the OSC Console preserved at the bottom.
+- Continued the UI refactor by extracting more monitoring and settings-panel logic from the main window.
+- Added built-in update checking on startup and from the Help menu.
+- Added an in-app update prompt and platform-aware update flow.
+- Prevented duplicate popup windows for `Get Clips`, `Set`, and `End Action`.
 
-### Packaging and installer
+### Packaging and release
 
-- Bundled app-local MSVC runtime files and the VC++ redistributable in the Windows installer.
-- Added Windows Firewall rule setup/removal to make OSC communication more reliable on fresh systems.
-- Updated the setup icon pipeline so release packaging uses the current application icon assets.
+- Installer now uses the icon from the shared `Icon` asset folder, matching the application icon.
+- Bundled runtime and installer flow remain ready for clean Windows installs.
+- Release workflow now checks out the repository before publishing so release notes are attached correctly.

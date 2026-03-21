@@ -113,6 +113,13 @@ target_sources(EasyTrigger PRIVATE
   Source/core/ClockState.h
   Source/core/ConfigStore.cpp
   Source/core/ConfigStore.h
+  Source/ui/monitoring/OscLog.h
+  Source/ui/components/StatusBarComponent.h
+  Source/ui/components/SettingsPanelComponent.h
+  Source/ui/updates/UpdateChecker.h
+  Source/ui/updates/UpdateInstaller.h
+  Source/ui/windows/StatusMonitorWindow.h
+  Source/ui/windows/UpdatePromptWindow.h
 )
 
 target_include_directories(EasyTrigger PRIVATE

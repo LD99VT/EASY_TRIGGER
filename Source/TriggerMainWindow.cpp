@@ -8,6 +8,12 @@ using trigger::styleValueLabel;
 using trigger::styleSlider;
 #include "Version.h"
 #include "core/ConfigStore.h"
+#include "ui/windows/StatusMonitorWindow.h"
+#include "ui/windows/UpdatePromptWindow.h"
+
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -64,10 +70,6 @@ void tagPopupComponentTree (juce::Component& component, juce::MouseListener& lis
         tagPopupComponentTree (*component.getChildComponent (i), listener, rowNumber);
 }
 
-juce::String diagnosticTimestamp()
-{
-    return juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
-}
 }
 
 void FpsIndicatorStrip::setActiveFps (std::optional<FrameRate> fps)
@@ -497,10 +499,6 @@ juce::Image loadTriggerAppIcon()
 
 #include "ui/windows/PreferencesWindow.h"
 // ─────────────────────────────────────────────────────────────────────────────
-
-#include "ui/windows/StatusMonitorWindow.h"
-// ─────────────────────────────────────────────────────────────────────────────
-
 #include "ui/windows/GetClipsOptionsWindow.h"
 }
 
@@ -512,10 +510,7 @@ TriggerContentComponent::TriggerContentComponent()
     setOpaque (true);
     loadFonts();
     applyTheme();
-    addAndMakeVisible (leftViewport_);
-    leftViewport_.setViewedComponent (&leftViewportContent_, false);
-    leftViewport_.setScrollBarsShown (true, false);
-    leftViewport_.setScrollBarThickness (8);
+    addAndMakeVisible (settingsPanel_);
 
     easyLabel_.setText ("EASY ", juce::dontSendNotification);
     easyLabel_.setJustificationType (juce::Justification::centredLeft);
@@ -542,7 +537,7 @@ TriggerContentComponent::TriggerContentComponent()
     sourceCombo_.addItem ("OSC", 4);
     sourceCombo_.setSelectedId (1, juce::dontSendNotification);
     styleCombo (sourceCombo_);
-    leftViewportContent_.addAndMakeVisible (sourceHeaderLabel_);
+    settingsPanel_.content().addAndMakeVisible (sourceHeaderLabel_);
     sourceExpandBtn_.setExpanded (true);
     sourceExpandBtn_.onClick = [this]
     {
@@ -552,8 +547,8 @@ TriggerContentComponent::TriggerContentComponent()
         resized();
         repaint();
     };
-    leftViewportContent_.addAndMakeVisible (sourceExpandBtn_);
-    leftViewportContent_.addAndMakeVisible (sourceCombo_);
+    settingsPanel_.content().addAndMakeVisible (sourceExpandBtn_);
+    settingsPanel_.content().addAndMakeVisible (sourceCombo_);
     sourceHeaderLabel_.setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xe4, 0xe4, 0xe4));
     sourceHeaderLabel_.setFont (juce::FontOptions (14.0f));
     sourceHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
@@ -571,7 +566,7 @@ TriggerContentComponent::TriggerContentComponent()
         l->setColour (juce::Label::backgroundColourId, row_);
         l->setColour (juce::Label::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
         l->setJustificationType (juce::Justification::centredLeft);
-        leftViewportContent_.addAndMakeVisible (*l);
+        settingsPanel_.content().addAndMakeVisible (*l);
     }
 
     for (auto* c : { &ltcInDriverCombo_, &ltcOutDriverCombo_ })
@@ -599,9 +594,9 @@ TriggerContentComponent::TriggerContentComponent()
     styleCombo (ltcOutDeviceCombo_);
     styleCombo (ltcOutChannelCombo_);
     styleCombo (ltcOutSampleRateCombo_);
-    leftViewportContent_.addAndMakeVisible (ltcConvertStrip_);
-    leftViewportContent_.addAndMakeVisible (ltcInDriverCombo_);
-    leftViewportContent_.addAndMakeVisible (ltcOutDriverCombo_);
+    settingsPanel_.content().addAndMakeVisible (ltcConvertStrip_);
+    settingsPanel_.content().addAndMakeVisible (ltcInDriverCombo_);
+    settingsPanel_.content().addAndMakeVisible (ltcOutDriverCombo_);
 
     fillChannelCombo (ltcInChannelCombo_, 0);
     fillChannelCombo (ltcOutChannelCombo_, 0);
@@ -647,12 +642,12 @@ TriggerContentComponent::TriggerContentComponent()
     for (auto* c : { &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &oscAdapterCombo_, &mtcInCombo_, &artnetInCombo_, &oscFpsCombo_,
                      &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_ })
     {
-        leftViewportContent_.addAndMakeVisible (*c);
+        settingsPanel_.content().addAndMakeVisible (*c);
         c->onChange = [this] { onInputSettingsChanged(); };
     }
     for (auto* c : { &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_ })
     {
-        leftViewportContent_.addAndMakeVisible (*c);
+        settingsPanel_.content().addAndMakeVisible (*c);
         c->onChange = [this] { onOutputSettingsChanged(); };
     }
     ltcConvertStrip_.onChange = [this] (std::optional<FrameRate> fps)
@@ -665,8 +660,8 @@ TriggerContentComponent::TriggerContentComponent()
     {
         updateWindowHeight();
         resized();
-        leftViewportContent_.repaint();
-        leftViewport_.repaint();
+        settingsPanel_.content().repaint();
+        settingsPanel_.viewport().repaint();
         repaint();
         onInputSettingsChanged();
     };
@@ -710,17 +705,17 @@ TriggerContentComponent::TriggerContentComponent()
     ltcOutSwitch_.onToggle = [this] (bool) { onOutputToggleChanged(); };
     ltcThruDot_.onToggle = [this] (bool) { queueLtcOutputApply(); };
 
-    leftViewportContent_.addAndMakeVisible (ltcInGainSlider_);
-    leftViewportContent_.addAndMakeVisible (ltcInLevelBar_);
-    leftViewportContent_.addAndMakeVisible (ltcOutLevelSlider_);
-    leftViewportContent_.addAndMakeVisible (ltcOffsetEditor_);
-    leftViewportContent_.addAndMakeVisible (oscIpEditor_);
-    leftViewportContent_.addAndMakeVisible (oscPortEditor_);
-    leftViewportContent_.addAndMakeVisible (oscAddrStrEditor_);
-    leftViewportContent_.addAndMakeVisible (oscAddrFloatEditor_);
-    leftViewportContent_.addAndMakeVisible (oscFloatTypeCombo_);
-    leftViewportContent_.addAndMakeVisible (oscFloatMaxEditor_);
-    leftViewportContent_.addAndMakeVisible (artnetListenIpEditor_);
+    settingsPanel_.content().addAndMakeVisible (ltcInGainSlider_);
+    settingsPanel_.content().addAndMakeVisible (ltcInLevelBar_);
+    settingsPanel_.content().addAndMakeVisible (ltcOutLevelSlider_);
+    settingsPanel_.content().addAndMakeVisible (ltcOffsetEditor_);
+    settingsPanel_.content().addAndMakeVisible (oscIpEditor_);
+    settingsPanel_.content().addAndMakeVisible (oscPortEditor_);
+    settingsPanel_.content().addAndMakeVisible (oscAddrStrEditor_);
+    settingsPanel_.content().addAndMakeVisible (oscAddrFloatEditor_);
+    settingsPanel_.content().addAndMakeVisible (oscFloatTypeCombo_);
+    settingsPanel_.content().addAndMakeVisible (oscFloatMaxEditor_);
+    settingsPanel_.content().addAndMakeVisible (artnetListenIpEditor_);
 
     resolumeSendIp_.setText ("127.0.0.1");
     resolumeSendPort_.setText ("7000");
@@ -815,8 +810,8 @@ TriggerContentComponent::TriggerContentComponent()
     styleSectionLabel (outLtcHeaderLabel_);
     outLtcHeaderLabel_.setJustificationType (juce::Justification::centredLeft);
     outLtcHeaderLabel_.setBorderSize (juce::BorderSize<int> (0, 42, 0, 0));
-    leftViewportContent_.addAndMakeVisible (outLtcHeaderLabel_);
-    leftViewportContent_.addAndMakeVisible (outLtcExpandBtn_);
+    settingsPanel_.content().addAndMakeVisible (outLtcHeaderLabel_);
+    settingsPanel_.content().addAndMakeVisible (outLtcExpandBtn_);
     outLtcExpandBtn_.setExpanded (false);
     outLtcExpandBtn_.onClick = [this]
     {
@@ -826,11 +821,11 @@ TriggerContentComponent::TriggerContentComponent()
         resized();
         repaint();
     };
-    leftViewportContent_.addAndMakeVisible (ltcOutSwitch_);
-    leftViewportContent_.addAndMakeVisible (ltcThruDot_);
+    settingsPanel_.content().addAndMakeVisible (ltcOutSwitch_);
+    settingsPanel_.content().addAndMakeVisible (ltcThruDot_);
     ltcThruLbl_.setColour (juce::Label::textColourId, kTextSecondary);
     ltcThruLbl_.setJustificationType (juce::Justification::centredLeft);
-    leftViewportContent_.addAndMakeVisible (ltcThruLbl_);
+    settingsPanel_.content().addAndMakeVisible (ltcThruLbl_);
     styleRowButton (settingsButton_, kRow);
     settingsButton_.onClick = [this] { openSettingsMenu(); };
     styleRowButton (quitButton_, juce::Colour::fromRGB (0xb6, 0x45, 0x40));
@@ -934,75 +929,72 @@ TriggerContentComponent::TriggerContentComponent()
     addAndMakeVisible (versionLabel_);
     addAndMakeVisible (tcLabel_);
     addAndMakeVisible (*fpsIndicatorStrip_);
-    addAndMakeVisible (resolumeStatusLabel_);
-    addAndMakeVisible (networkStatusLabel_);
-    addAndMakeVisible (statusLabel_);
-    leftViewportContent_.addAndMakeVisible (resolumeHeader_);
-    leftViewportContent_.addAndMakeVisible (resolumeExpandBtn_);
-    leftViewportContent_.addAndMakeVisible (triggerOutHeaderLabel_);
-    leftViewportContent_.addAndMakeVisible (triggerOutExpandBtn_);
-    leftViewportContent_.addAndMakeVisible (resAdapterLbl_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl2_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl3_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl4_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl5_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl6_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl7_);
-    leftViewportContent_.addAndMakeVisible (resSendIpLbl8_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl1_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl2_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl3_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl4_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl5_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl6_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl7_);
-    leftViewportContent_.addAndMakeVisible (resSendAdapterLbl8_);
-    leftViewportContent_.addAndMakeVisible (resSendPortLbl_);
-    leftViewportContent_.addAndMakeVisible (resListenIpLbl_);
-    leftViewportContent_.addAndMakeVisible (resListenPortLbl_);
-    leftViewportContent_.addAndMakeVisible (resMaxLayersLbl_);
-    leftViewportContent_.addAndMakeVisible (resMaxClipsLbl_);
-    leftViewportContent_.addAndMakeVisible (resGlobalOffsetLbl_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp2_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort2_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp3_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort3_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp4_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort4_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp5_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort5_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp6_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort6_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp7_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort7_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendIp8_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendPort8_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn1_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn2_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn3_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn4_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn5_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn6_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn7_);
-    leftViewportContent_.addAndMakeVisible (resolumeSendExpandBtn8_);
-    leftViewportContent_.addAndMakeVisible (resolumeAddTargetBtn_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn2_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn3_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn4_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn5_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn6_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn7_);
-    leftViewportContent_.addAndMakeVisible (resolumeDelTargetBtn8_);
-    leftViewportContent_.addAndMakeVisible (resolumeListenIp_);
-    leftViewportContent_.addAndMakeVisible (resolumeListenPort_);
-    leftViewportContent_.addAndMakeVisible (resolumeMaxLayers_);
-    leftViewportContent_.addAndMakeVisible (resolumeMaxClips_);
-    leftViewportContent_.addAndMakeVisible (resolumeGlobalOffset_);
-    addAndMakeVisible (getTriggersBtn_);
-    addAndMakeVisible (createCustomBtn_);
+    statusBar_.onClick = [this] { openStatusMonitorWindow(); };
+    addAndMakeVisible (statusBar_);
+    settingsPanel_.content().addAndMakeVisible (resolumeHeader_);
+    settingsPanel_.content().addAndMakeVisible (resolumeExpandBtn_);
+    settingsPanel_.content().addAndMakeVisible (triggerOutHeaderLabel_);
+    settingsPanel_.content().addAndMakeVisible (triggerOutExpandBtn_);
+    settingsPanel_.content().addAndMakeVisible (resAdapterLbl_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl2_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl3_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl4_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl5_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl6_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl7_);
+    settingsPanel_.content().addAndMakeVisible (resSendIpLbl8_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl1_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl2_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl3_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl4_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl5_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl6_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl7_);
+    settingsPanel_.content().addAndMakeVisible (resSendAdapterLbl8_);
+    settingsPanel_.content().addAndMakeVisible (resSendPortLbl_);
+    settingsPanel_.content().addAndMakeVisible (resListenIpLbl_);
+    settingsPanel_.content().addAndMakeVisible (resListenPortLbl_);
+    settingsPanel_.content().addAndMakeVisible (resMaxLayersLbl_);
+    settingsPanel_.content().addAndMakeVisible (resMaxClipsLbl_);
+    settingsPanel_.content().addAndMakeVisible (resGlobalOffsetLbl_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp2_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort2_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp3_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort3_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp4_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort4_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp5_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort5_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp6_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort6_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp7_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort7_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendIp8_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendPort8_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn1_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn2_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn3_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn4_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn5_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn6_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn7_);
+    settingsPanel_.content().addAndMakeVisible (resolumeSendExpandBtn8_);
+    settingsPanel_.content().addAndMakeVisible (resolumeAddTargetBtn_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn2_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn3_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn4_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn5_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn6_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn7_);
+    settingsPanel_.content().addAndMakeVisible (resolumeDelTargetBtn8_);
+    settingsPanel_.content().addAndMakeVisible (resolumeListenIp_);
+    settingsPanel_.content().addAndMakeVisible (resolumeListenPort_);
+    settingsPanel_.content().addAndMakeVisible (resolumeMaxLayers_);
+    settingsPanel_.content().addAndMakeVisible (resolumeMaxClips_);
+    settingsPanel_.content().addAndMakeVisible (resolumeGlobalOffset_);
     addAndMakeVisible (fileMenuBtn_);
     addAndMakeVisible (manageMenuBtn_);
     addAndMakeVisible (viewMenuBtn_);
@@ -1145,7 +1137,7 @@ void TriggerContentComponent::paint (juce::Graphics& g)
         juce::Graphics::ScopedSaveState savedState (g);
         auto clip = leftViewportRect_;
         g.reduceClipRegion (clip);
-        const auto viewPos = leftViewport_.getViewPosition();
+        const auto viewPos = settingsPanel_.getViewPosition();
         g.setColour (kSection);
         for (auto r : sectionRowRects_)
             g.fillRoundedRectangle (r.translated (clip.getX() - viewPos.x, clip.getY() - viewPos.y).toFloat(), 5.0f);
@@ -1157,14 +1149,6 @@ void TriggerContentComponent::paint (juce::Graphics& g)
     for (auto r : rightSectionRects_)
         g.fillRoundedRectangle (r.toFloat(), 6.0f);
 
-    if (! statusBarRect_.isEmpty())
-    {
-        g.setColour (row_);
-        g.fillRect (statusBarRect_);
-        g.setColour (kRowOutline);
-        g.drawLine ((float) statusBarRect_.getX(), (float) statusBarRect_.getY(),
-                    (float) statusBarRect_.getRight(), (float) statusBarRect_.getY(), 1.0f);
-    }
 }
 
 void TriggerContentComponent::paintOverChildren (juce::Graphics& g)
@@ -1194,31 +1178,7 @@ void TriggerContentComponent::resized()
     menuBarRect_ = {};
     timerRect_ = {};
     auto bounds = getLocalBounds();
-    statusBarRect_ = bounds.removeFromBottom (24);
-    statusLeftRect_ = statusBarRect_;
-    statusCenterRect_ = {};
-    statusRightRect_ = {};
-    if (! statusBarRect_.isEmpty())
-    {
-        const int rightW = juce::jmax (220, statusBarRect_.getWidth() / 4);
-        const int centerW = juce::jmax (320, statusBarRect_.getWidth() / 3);
-        const int centerX = statusBarRect_.getCentreX() - centerW / 2;
-
-        statusCenterRect_ = juce::Rectangle<int> (centerX,
-                                                  statusBarRect_.getY(),
-                                                  juce::jmin (centerW, statusBarRect_.getWidth()),
-                                                  statusBarRect_.getHeight());
-
-        statusRightRect_ = juce::Rectangle<int> (statusBarRect_.getRight() - rightW,
-                                                 statusBarRect_.getY(),
-                                                 rightW,
-                                                 statusBarRect_.getHeight());
-
-        statusLeftRect_ = juce::Rectangle<int> (statusBarRect_.getX(),
-                                                statusBarRect_.getY(),
-                                                juce::jmax (0, statusCenterRect_.getX() - statusBarRect_.getX()),
-                                                statusBarRect_.getHeight());
-    }
+    statusBar_.setBounds (bounds.removeFromBottom (24));
     auto content = bounds.reduced (8);
     menuBarRect_ = content.removeFromTop (24);
     content.removeFromTop (4);
@@ -1231,34 +1191,9 @@ void TriggerContentComponent::resized()
     auto left = content.removeFromLeft (leftW);
     auto right = content.reduced (6, 0);
 
-    headerRect_ = left.removeFromTop (40);
-    auto top = headerRect_.reduced (6, 0);
-    const int versionW = juce::jmax (58, versionLabel_.getFont().getStringWidth (versionLabel_.getText()) + 4);
-    auto versionArea = top.removeFromRight (versionW);
-    const int easyW = juce::jmax (46, easyLabel_.getFont().getStringWidth ("EASY ") + 6);
-    const int trigW = juce::jmax (90, triggerLabel_.getFont().getStringWidth ("TRIGGER") + 6);
-    const int startX = top.getX() + 2;
-    const int yOff = 6;
-    const int titleH = juce::jmax (1, top.getHeight() - yOff);
-    easyLabel_.setBounds (startX, top.getY() + yOff, easyW, titleH);
-    triggerLabel_.setBounds (startX + easyW, top.getY() + yOff, trigW, titleH);
-    versionLabel_.setBounds (versionArea.getX(), top.getY() + yOff, versionW, titleH);
-    left.removeFromTop (4);
-    timerRect_ = left.removeFromTop (90);
-    tcLabel_.setBounds (timerRect_);
-    left.removeFromTop (4);
-    auto fpsRect = left.removeFromTop (kCompactBarHeight);
-    if (fpsIndicatorStrip_ != nullptr)
-        fpsIndicatorStrip_->setBounds (fpsRect);
-    left.removeFromTop (4);
-
-    auto footerArea = left.removeFromBottom (88);
-    auto createCustomRow = footerArea.removeFromBottom (40);
-    footerArea.removeFromBottom (4);
-    auto getTriggersRow = footerArea.removeFromBottom (40);
-    footerArea.removeFromBottom (4); // 4px top gap above Get Clips
-    leftViewportRect_ = left;
-    leftViewport_.setBounds (leftViewportRect_);
+    juce::Rectangle<int> getTriggersRow;
+    juce::Rectangle<int> createCustomRow;
+    layoutSettingsPanelChrome (left, getTriggersRow, createCustomRow);
     const auto src = sourceCombo_.getSelectedId();
     auto rowsForSource = [this, src]() -> int
     {
@@ -1281,7 +1216,7 @@ void TriggerContentComponent::resized()
                           + 1 + (resolumeExpanded_ ? resolumeRows : 0)
                           + 1 + (triggerOutExpanded_ ? triggerOutRows : 0)
                           + 1 + (outLtcExpanded_ ? 7 : 0);
-    const int viewportScrollWidth = leftViewport_.getScrollBarThickness();
+    const int viewportScrollWidth = settingsPanel_.getScrollBarThickness();
     const bool vScrollNeeded = (contentRows * 44 > leftViewportRect_.getHeight());
     auto leftLayoutArea = juce::Rectangle<int> (0, 0, leftViewportRect_.getWidth() - (vScrollNeeded ? viewportScrollWidth : 0) - 4, 0);
     int contentY = 0;
@@ -1381,47 +1316,55 @@ void TriggerContentComponent::resized()
         setCompBounds (btn, { bh.getX() + 3 + (bh.getWidth() - d) / 2, bh.getY() + (bh.getHeight() - d) / 2, d, d }, wanted);
         setCompBounds (lbl, r.reduced (6, 0), wanted);
     };
+    auto layoutSourceSection = [&]()
+    {
+        auto sourceRow = nextRow();
+        pushRowRect (sourceRow, true);
+        auto sourceLabelZone = sourceRow.removeFromLeft (112);
+        {
+            auto btnHost = sourceLabelZone.removeFromLeft (36);
+            const int d = 28;
+            setCompBounds (sourceExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
+                                               btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
+        }
+        setCompBounds (sourceHeaderLabel_, sourceLabelZone);
+        setCompBounds (sourceCombo_, sourceRow.reduced (2, 3));
+        sourceHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        sourceExpandBtn_.setExpanded (sourceExpanded_);
 
-    auto sourceRow = nextRow();
-    pushRowRect (sourceRow, true);
-    auto sourceLabelZone = sourceRow.removeFromLeft (112);
-    {
-        auto btnHost = sourceLabelZone.removeFromLeft (36);
-        const int d = 28;
-        setCompBounds (sourceExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
-                                           btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
-    }
-    setCompBounds (sourceHeaderLabel_, sourceLabelZone);
-    setCompBounds (sourceCombo_, sourceRow.reduced (2, 3));
-    sourceHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    sourceExpandBtn_.setExpanded (sourceExpanded_);
+        if (! sourceExpanded_)
+            return;
 
-    if (sourceExpanded_ && src == 1)
-    {
-        layoutParam (inDriverLbl_, ltcInDriverCombo_);
-        layoutParam (inDeviceLbl_, ltcInDeviceCombo_);
-        layoutParam (inChannelLbl_, ltcInChannelCombo_);
-        layoutParam (inRateLbl_, ltcInSampleRateCombo_);
-        auto meterRow = nextRow();
-        pushRowRect (meterRow, false);
-        auto meterLabelArea = meterRow.removeFromLeft (112);
-        setCompBounds (inLevelLbl_, meterLabelArea.reduced (10, 0));
-        auto meterControl = meterRow.reduced (0, 3).reduced (2, 0).reduced (6, 0);
-        const int meterH = 8;
-        setCompBounds (ltcInLevelBar_, juce::Rectangle<int> (meterControl.getX(), meterControl.getCentreY() - meterH / 2, meterControl.getWidth(), meterH));
-        layoutParam (inGainLbl_, ltcInGainSlider_);
-    }
-    else if (sourceExpanded_ && src == 2)
-    {
-        layoutParam (mtcInLbl_, mtcInCombo_);
-    }
-    else if (sourceExpanded_ && src == 3)
-    {
-        layoutParam (artInLbl_, artnetInCombo_);
-        layoutParam (artInListenIpLbl_, artnetListenIpEditor_);
-    }
-    else if (sourceExpanded_)
-    {
+        if (src == 1)
+        {
+            layoutParam (inDriverLbl_, ltcInDriverCombo_);
+            layoutParam (inDeviceLbl_, ltcInDeviceCombo_);
+            layoutParam (inChannelLbl_, ltcInChannelCombo_);
+            layoutParam (inRateLbl_, ltcInSampleRateCombo_);
+            auto meterRow = nextRow();
+            pushRowRect (meterRow, false);
+            auto meterLabelArea = meterRow.removeFromLeft (112);
+            setCompBounds (inLevelLbl_, meterLabelArea.reduced (10, 0));
+            auto meterControl = meterRow.reduced (0, 3).reduced (2, 0).reduced (6, 0);
+            const int meterH = 8;
+            setCompBounds (ltcInLevelBar_, juce::Rectangle<int> (meterControl.getX(), meterControl.getCentreY() - meterH / 2, meterControl.getWidth(), meterH));
+            layoutParam (inGainLbl_, ltcInGainSlider_);
+            return;
+        }
+
+        if (src == 2)
+        {
+            layoutParam (mtcInLbl_, mtcInCombo_);
+            return;
+        }
+
+        if (src == 3)
+        {
+            layoutParam (artInLbl_, artnetInCombo_);
+            layoutParam (artInListenIpLbl_, artnetListenIpEditor_);
+            return;
+        }
+
         layoutParam (oscAdapterLbl_, oscAdapterCombo_);
         layoutParam (oscIpLbl_, oscIpEditor_);
         layoutParam (oscPortLbl_, oscPortEditor_);
@@ -1431,13 +1374,16 @@ void TriggerContentComponent::resized()
         layoutParam (oscFloatTypeLbl_, oscFloatTypeCombo_);
         const bool showMax = oscFloatTypeCombo_.getSelectedId() == 3;
         layoutParam (oscFloatMaxLbl_, oscFloatMaxEditor_, showMax);
-    }
+    };
 
-    headerRow (resolumeHeader_, resolumeExpandBtn_);
-    resolumeHeader_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    resolumeExpandBtn_.setExpanded (resolumeExpanded_);
-    if (resolumeExpanded_)
+    auto layoutResolumeSection = [&]()
     {
+        headerRow (resolumeHeader_, resolumeExpandBtn_);
+        resolumeHeader_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        resolumeExpandBtn_.setExpanded (resolumeExpanded_);
+        if (! resolumeExpanded_)
+            return;
+
         layoutParam (resAdapterLbl_, resolumeAdapterCombo_);
         auto listenRow = nextRow();
         pushRowRect (listenRow, false);
@@ -1451,13 +1397,16 @@ void TriggerContentComponent::resized()
         layoutParam (resMaxLayersLbl_, resolumeMaxLayers_);
         layoutParam (resMaxClipsLbl_, resolumeMaxClips_);
         layoutParam (resGlobalOffsetLbl_, resolumeGlobalOffset_);
-    }
+    };
 
-    headerRow (triggerOutHeaderLabel_, triggerOutExpandBtn_);
-    triggerOutHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    triggerOutExpandBtn_.setExpanded (triggerOutExpanded_);
-    if (triggerOutExpanded_)
+    auto layoutTriggerOutSection = [&]()
     {
+        headerRow (triggerOutHeaderLabel_, triggerOutExpandBtn_);
+        triggerOutHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        triggerOutExpandBtn_.setExpanded (triggerOutExpanded_);
+        if (! triggerOutExpanded_)
+            return;
+
         layoutTriggerTargetRow (resSendIpLbl_,  resolumeSendExpandBtn1_, resolumeSendIp_,  resolumeSendPort_,  resSendAdapterLbl1_, resolumeSendAdapterCombo1_, resolumeAddTargetBtn_,  resolumeSendExpanded1_, true);
         layoutTriggerTargetRow (resSendIpLbl2_, resolumeSendExpandBtn2_, resolumeSendIp2_, resolumeSendPort2_, resSendAdapterLbl2_, resolumeSendAdapterCombo2_, resolumeDelTargetBtn2_, resolumeSendExpanded2_, resolumeSendTargetCount_ >= 2);
         layoutTriggerTargetRow (resSendIpLbl3_, resolumeSendExpandBtn3_, resolumeSendIp3_, resolumeSendPort3_, resSendAdapterLbl3_, resolumeSendAdapterCombo3_, resolumeDelTargetBtn3_, resolumeSendExpanded3_, resolumeSendTargetCount_ >= 3);
@@ -1466,31 +1415,34 @@ void TriggerContentComponent::resized()
         layoutTriggerTargetRow (resSendIpLbl6_, resolumeSendExpandBtn6_, resolumeSendIp6_, resolumeSendPort6_, resSendAdapterLbl6_, resolumeSendAdapterCombo6_, resolumeDelTargetBtn6_, resolumeSendExpanded6_, resolumeSendTargetCount_ >= 6);
         layoutTriggerTargetRow (resSendIpLbl7_, resolumeSendExpandBtn7_, resolumeSendIp7_, resolumeSendPort7_, resSendAdapterLbl7_, resolumeSendAdapterCombo7_, resolumeDelTargetBtn7_, resolumeSendExpanded7_, resolumeSendTargetCount_ >= 7);
         layoutTriggerTargetRow (resSendIpLbl8_, resolumeSendExpandBtn8_, resolumeSendIp8_, resolumeSendPort8_, resSendAdapterLbl8_, resolumeSendAdapterCombo8_, resolumeDelTargetBtn8_, resolumeSendExpanded8_, resolumeSendTargetCount_ >= 8);
-    }
+    };
 
-    auto ltcHeader = nextRow();
-    pushRowRect (ltcHeader, true);
-    auto ltcHeaderCopy = ltcHeader;
-    setCompBounds (outLtcHeaderLabel_, ltcHeaderCopy);
+    auto layoutOutLtcSection = [&]()
     {
-        auto btnHost = ltcHeader.removeFromLeft (36);
-        const int d = 28;
-        setCompBounds (outLtcExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
-                                           btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
-    }
-    ltcHeader.removeFromLeft (110);
-    setCompBounds (ltcOutSwitch_, ltcHeader.removeFromRight (54).reduced (0, 6));
-    {
-        auto dotHost = ltcHeader.removeFromRight (22);
-        const int d = 18;
-        setCompBounds (ltcThruDot_, { dotHost.getCentreX() - d / 2, dotHost.getCentreY() - d / 2, d, d });
-    }
-    setCompBounds (ltcThruLbl_, ltcHeader.removeFromRight (40));
-    outLtcHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    outLtcExpandBtn_.setExpanded (outLtcExpanded_);
+        auto ltcHeader = nextRow();
+        pushRowRect (ltcHeader, true);
+        auto ltcHeaderCopy = ltcHeader;
+        setCompBounds (outLtcHeaderLabel_, ltcHeaderCopy);
+        {
+            auto btnHost = ltcHeader.removeFromLeft (36);
+            const int d = 28;
+            setCompBounds (outLtcExpandBtn_, { btnHost.getX() + 3 + (btnHost.getWidth() - d) / 2,
+                                               btnHost.getY() + (btnHost.getHeight() - d) / 2, d, d });
+        }
+        ltcHeader.removeFromLeft (110);
+        setCompBounds (ltcOutSwitch_, ltcHeader.removeFromRight (54).reduced (0, 6));
+        {
+            auto dotHost = ltcHeader.removeFromRight (22);
+            const int d = 18;
+            setCompBounds (ltcThruDot_, { dotHost.getCentreX() - d / 2, dotHost.getCentreY() - d / 2, d, d });
+        }
+        setCompBounds (ltcThruLbl_, ltcHeader.removeFromRight (40));
+        outLtcHeaderLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        outLtcExpandBtn_.setExpanded (outLtcExpanded_);
 
-    if (outLtcExpanded_)
-    {
+        if (! outLtcExpanded_)
+            return;
+
         layoutParam (outDriverLbl_, ltcOutDriverCombo_);
         layoutParam (outDeviceLbl_, ltcOutDeviceCombo_);
         layoutParam (outChannelLbl_, ltcOutChannelCombo_);
@@ -1498,22 +1450,107 @@ void TriggerContentComponent::resized()
         layoutParam (outConvertLbl_, ltcConvertStrip_);
         layoutParam (outOffsetLbl_, ltcOffsetEditor_);
         layoutParam (outLevelLbl_, ltcOutLevelSlider_);
-    }
-    leftViewportContent_.setSize (juce::jmax (0, leftLayoutArea.getWidth()), juce::jmax (contentY, leftViewportRect_.getHeight()));
-
-    auto hideAll = [this]
-    {
-        juce::Component* comps[] = {
-            &ltcInDriverCombo_, &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &ltcInLevelBar_, &ltcInGainSlider_,
-            &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_, &oscFloatTypeCombo_, &oscFloatMaxEditor_,
-            &ltcOutDriverCombo_, &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_, &ltcConvertStrip_, &ltcOffsetEditor_, &ltcOutLevelSlider_,
-            &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_
-        };
-        for (auto* c : comps)
-            if (c != nullptr)
-                c->setVisible (false);
     };
-    hideAll();
+
+    layoutSourceSection();
+    layoutResolumeSection();
+    layoutTriggerOutSection();
+    layoutOutLtcSection();
+    settingsPanel_.setContentSize (juce::jmax (0, leftLayoutArea.getWidth()), juce::jmax (contentY, leftViewportRect_.getHeight()));
+    updateLeftPanelVisibility (src);
+
+    getTriggersBtn_.setVisible (true);
+    createCustomBtn_.setVisible (true);
+    createCustomBtn_.setEnabled (! hasCustomGroupsAtLimit());
+
+    layoutMenuButtons();
+
+    rightSectionRects_.add (right);
+    triggerTable_.setBounds (right.reduced (3));
+    updateTableColumnWidths();
+
+    bringChromeToFront();
+}
+
+void TriggerContentComponent::layoutSettingsPanelChrome (juce::Rectangle<int>& left,
+                                                         juce::Rectangle<int>& getTriggersRow,
+                                                         juce::Rectangle<int>& createCustomRow)
+{
+    headerRect_ = left.removeFromTop (40);
+    auto top = headerRect_.reduced (6, 0);
+    const int versionW = juce::jmax (58, versionLabel_.getFont().getStringWidth (versionLabel_.getText()) + 4);
+    auto versionArea = top.removeFromRight (versionW);
+    const int easyW = juce::jmax (46, easyLabel_.getFont().getStringWidth ("EASY ") + 6);
+    const int trigW = juce::jmax (90, triggerLabel_.getFont().getStringWidth ("TRIGGER") + 6);
+    const int startX = top.getX() + 2;
+    const int yOff = 6;
+    const int titleH = juce::jmax (1, top.getHeight() - yOff);
+    easyLabel_.setBounds (startX, top.getY() + yOff, easyW, titleH);
+    triggerLabel_.setBounds (startX + easyW, top.getY() + yOff, trigW, titleH);
+    versionLabel_.setBounds (versionArea.getX(), top.getY() + yOff, versionW, titleH);
+    left.removeFromTop (4);
+    timerRect_ = left.removeFromTop (90);
+    tcLabel_.setBounds (timerRect_);
+    left.removeFromTop (4);
+    auto fpsRect = left.removeFromTop (kCompactBarHeight);
+    if (fpsIndicatorStrip_ != nullptr)
+        fpsIndicatorStrip_->setBounds (fpsRect);
+    left.removeFromTop (4);
+
+    juce::ignoreUnused (getTriggersRow, createCustomRow);
+    settingsPanel_.setBounds (left);
+    settingsPanel_.layoutPanel (settingsPanel_.getLocalBounds());
+    leftViewportRect_ = settingsPanel_.getViewportBoundsInParent();
+}
+
+void TriggerContentComponent::layoutMenuButtons()
+{
+    auto menuButtons = menuBarRect_;
+    menuButtons.reduce (0, 0);
+    const int menuGap = 2;
+    const auto menuButtonWidth = [] (const juce::TextButton& button)
+    {
+        return juce::jmax (42, juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")).getStringWidth (button.getButtonText()) + 18);
+    };
+    fileMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (fileMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    manageMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (manageMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    viewMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (viewMenuBtn_)));
+    menuButtons.removeFromLeft (menuGap);
+    helpMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (helpMenuBtn_)));
+}
+
+void TriggerContentComponent::bringChromeToFront()
+{
+    easyLabel_.toFront (false);
+    triggerLabel_.toFront (false);
+    versionLabel_.toFront (false);
+    tcLabel_.toFront (false);
+    if (fpsIndicatorStrip_ != nullptr)
+        fpsIndicatorStrip_->toFront (false);
+    getTriggersBtn_.toFront (false);
+    createCustomBtn_.toFront (false);
+    fileMenuBtn_.toFront (false);
+    manageMenuBtn_.toFront (false);
+    viewMenuBtn_.toFront (false);
+    helpMenuBtn_.toFront (false);
+    statusBar_.toFront (false);
+    settingsPanel_.bringButtonsToFront();
+}
+
+void TriggerContentComponent::updateLeftPanelVisibility (int src)
+{
+    juce::Component* comps[] = {
+        &ltcInDriverCombo_, &ltcInDeviceCombo_, &ltcInChannelCombo_, &ltcInSampleRateCombo_, &ltcInLevelBar_, &ltcInGainSlider_,
+        &mtcInCombo_, &artnetInCombo_, &artnetListenIpEditor_, &oscAdapterCombo_, &oscIpEditor_, &oscPortEditor_, &oscFpsCombo_, &oscAddrStrEditor_, &oscAddrFloatEditor_, &oscFloatTypeCombo_, &oscFloatMaxEditor_,
+        &ltcOutDriverCombo_, &ltcOutDeviceCombo_, &ltcOutChannelCombo_, &ltcOutSampleRateCombo_, &ltcConvertStrip_, &ltcOffsetEditor_, &ltcOutLevelSlider_,
+        &resolumeAdapterCombo_, &resolumeSendAdapterCombo1_, &resolumeSendAdapterCombo2_, &resolumeSendAdapterCombo3_, &resolumeSendAdapterCombo4_, &resolumeSendAdapterCombo5_, &resolumeSendAdapterCombo6_, &resolumeSendAdapterCombo7_, &resolumeSendAdapterCombo8_
+    };
+    for (auto* c : comps)
+        if (c != nullptr)
+            c->setVisible (false);
+
     inDriverLbl_.setVisible (sourceExpanded_ && src == 1);
     ltcInDriverCombo_.setVisible (sourceExpanded_ && src == 1);
     inDeviceLbl_.setVisible (sourceExpanded_ && src == 1);
@@ -1634,52 +1671,6 @@ void TriggerContentComponent::resized()
     resolumeDelTargetBtn6_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 6);
     resolumeDelTargetBtn7_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 7);
     resolumeDelTargetBtn8_.setVisible (triggerOutExpanded_ && resolumeSendTargetCount_ >= 8);
-
-    getTriggersBtn_.setBounds (getTriggersRow);
-    getTriggersBtn_.setVisible (true);
-    createCustomBtn_.setBounds (createCustomRow);
-    createCustomBtn_.setVisible (true);
-    createCustomBtn_.setEnabled (! hasCustomGroupsAtLimit());
-
-    auto menuButtons = menuBarRect_;
-    menuButtons.reduce (0, 0);
-    const int menuGap = 2;
-    const auto menuButtonWidth = [] (const juce::TextButton& button)
-    {
-        return juce::jmax (42, juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")).getStringWidth (button.getButtonText()) + 18);
-    };
-    fileMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (fileMenuBtn_)));
-    menuButtons.removeFromLeft (menuGap);
-    manageMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (manageMenuBtn_)));
-    menuButtons.removeFromLeft (menuGap);
-    viewMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (viewMenuBtn_)));
-    menuButtons.removeFromLeft (menuGap);
-    helpMenuBtn_.setBounds (menuButtons.removeFromLeft (menuButtonWidth (helpMenuBtn_)));
-
-    resolumeStatusLabel_.setBounds (statusLeftRect_.reduced (8, 0));
-    networkStatusLabel_.setBounds (statusCenterRect_.reduced (8, 0));
-    statusLabel_.setBounds (statusRightRect_.reduced (8, 0));
-
-    rightSectionRects_.add (right);
-    triggerTable_.setBounds (right.reduced (3));
-    updateTableColumnWidths();
-
-    easyLabel_.toFront (false);
-    triggerLabel_.toFront (false);
-    versionLabel_.toFront (false);
-    tcLabel_.toFront (false);
-    if (fpsIndicatorStrip_ != nullptr)
-        fpsIndicatorStrip_->toFront (false);
-    getTriggersBtn_.toFront (false);
-    createCustomBtn_.toFront (false);
-    fileMenuBtn_.toFront (false);
-    manageMenuBtn_.toFront (false);
-    viewMenuBtn_.toFront (false);
-    helpMenuBtn_.toFront (false);
-    resolumeStatusLabel_.toFront (false);
-    networkStatusLabel_.toFront (false);
-    statusLabel_.toFront (false);
-    leftViewport_.toBack();
 }
 
 void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
@@ -1701,8 +1692,6 @@ void TriggerContentComponent::mouseUp (const juce::MouseEvent& event)
         }
     }
 
-    if (statusBarRect_.contains (event.getPosition()))
-        openStatusMonitorWindow();
 }
 
 void TriggerContentComponent::updateTableColumnWidths()
@@ -1788,6 +1777,17 @@ void TriggerContentComponent::updateTableColumnWidths()
         h.setColumnWidth (cols[i].id, widths[i]);
 
     h.setColumnWidth (testColId, kTestColW);
+}
+
+void TriggerContentComponent::refreshTriggerTableContent()
+{
+    triggerTable_.updateContent();
+    repaintTriggerTable();
+}
+
+void TriggerContentComponent::repaintTriggerTable()
+{
+    triggerTable_.repaint();
 }
 
 void TriggerContentComponent::addCustomColumns()
@@ -1942,6 +1942,14 @@ void TriggerContentComponent::timerCallback()
                           "Please check IP address and port settings.",
                           getParentComponent());
     }
+
+    if (updateCheckDelay_ > 0)
+    {
+        if (--updateCheckDelay_ == 0)
+            requestUpdateCheck (false);
+    }
+
+    pollUpdateChecker();
 
     // Build status counts directly from triggerRows_ so that Clear clip triggers
     // immediately reflects 0 clips without waiting for clipCollector_ to drain.
@@ -2251,8 +2259,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                     for (auto& c : triggerRows_)
                         if (c.layer == dr2.layer)
                             c.sendTargetIndex = sendIndex;
-                    triggerTable_.updateContent();
-                    triggerTable_.repaint();
+                    refreshTriggerTableContent();
                 };
                 return withPopup (combo);
             }
@@ -2295,8 +2302,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 for (auto& c : triggerRows_)
                     if (c.layer == dr2.layer)
                         c.triggerRangeSec = newRange;
-                triggerTable_.updateContent();
-                triggerTable_.repaint();
+                refreshTriggerTableContent();
             };
             return withPopup (ed);
         }
@@ -2332,8 +2338,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 for (auto& c : triggerRows_)
                     if (c.layer == dr2.layer)
                         c.sendTargetIndex = sendIndex;
-                triggerTable_.updateContent();
-                triggerTable_.repaint();
+                refreshTriggerTableContent();
             };
             return withPopup (combo);
         }
@@ -2392,8 +2397,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                     c.endActionClip  = (mode == "lc") ? clipValue : juce::String();
                 }
                 updateTableColumnWidths();
-                triggerTable_.updateContent();
-                triggerTable_.repaint();
+                refreshTriggerTableContent();
             };
             return withPopup (cell);
         }
@@ -2445,8 +2449,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 fireCustomTrigger (c);
                 for (auto& t : triggerRows_) t.testHighlight = false;
                 c.testHighlight = true;
-                triggerTable_.updateContent();
-                triggerTable_.repaint();
+                refreshTriggerTableContent();
             };
             return withPopup (btn);
         }
@@ -2555,8 +2558,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             c.endActionLayer = (mode == "lc") ? layer : juce::String();
             c.endActionClip  = (mode == "lc") ? clipValue : juce::String();
             updateTableColumnWidths();
-            triggerTable_.updateContent();
-            triggerTable_.repaint();
+            refreshTriggerTableContent();
         };
         return withPopup (cell);
     }
@@ -2604,8 +2606,7 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                 pendingEndActions_.erase ({ c.layer, c.clip });
             }
 
-            triggerTable_.updateContent();
-            triggerTable_.repaint();
+            refreshTriggerTableContent();
         };
         return withPopup (btn);
     }
@@ -2646,8 +2647,7 @@ void TriggerContentComponent::cellClicked (int rowNumber, int columnId, const ju
         }
         syncCustomGroupStateFromLayers();
         rebuildDisplayRows();
-        triggerTable_.updateContent();
-        triggerTable_.repaint();
+        refreshTriggerTableContent();
         return;
     }
 
@@ -2781,9 +2781,9 @@ void TriggerContentComponent::applyTheme()
     lookAndFeel_->setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
     lookAndFeel_->setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x3d, 0x80, 0x70));
     lookAndFeel_->setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x1a, 0x1a, 0x1a));
-    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
-    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
-    leftViewport_.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
+    settingsPanel_.viewport().getVerticalScrollBar().setColour (juce::ScrollBar::backgroundColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
+    settingsPanel_.viewport().getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, juce::Colour::fromRGB (0x5a, 0x5a, 0x5a));
+    settingsPanel_.viewport().getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, juce::Colour::fromRGB (0x2a, 0x2a, 0x2a));
 
     lookAndFeel_->setColour (juce::TextEditor::backgroundColourId, input_);
     lookAndFeel_->setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
@@ -2829,19 +2829,6 @@ void TriggerContentComponent::applyTheme()
         h->setFont (juce::FontOptions (kSectionHeaderFontSize));
         h->setJustificationType (juce::Justification::centredLeft);
     }
-    resolumeStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    resolumeStatusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
-    networkStatusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    networkStatusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
-    statusLabel_.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    statusLabel_.setColour (juce::Label::textColourId, kStatusWarn);
-    resolumeStatusLabel_.setJustificationType (juce::Justification::centredLeft);
-    networkStatusLabel_.setJustificationType (juce::Justification::centred);
-    statusLabel_.setJustificationType (juce::Justification::centredRight);
-    // Pass mouse events through so the status bar click (openStatusMonitorWindow) reaches the parent
-    resolumeStatusLabel_.setInterceptsMouseClicks (false, false);
-    networkStatusLabel_.setInterceptsMouseClicks (false, false);
-    statusLabel_.setInterceptsMouseClicks (false, false);
     styleRowButton (getTriggersBtn_, row_);
     styleRowButton (createCustomBtn_, row_);
 }
@@ -2948,8 +2935,7 @@ void TriggerContentComponent::refreshTriggerRows()
 
     normaliseLayerOrder();
     rebuildDisplayRows();
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::syncTriggerRowFeedbackFromCollector()
@@ -3061,8 +3047,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         pendingEndActions_.clear();
         for (auto& t : triggerRows_)
             t.connected = false;
-        triggerTable_.updateContent();
-        triggerTable_.repaint();
+        refreshTriggerTableContent();
         return;
     }
 
@@ -3222,8 +3207,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         }
         currentTriggerKeys_.insert ({ t.layer, t.clip });
     }
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
 }
 
 void TriggerContentComponent::processEndActions()
@@ -3810,8 +3794,7 @@ void TriggerContentComponent::addResolumeSendTarget()
     ports[(size_t) resolumeSendTargetCount_]->setText (ports[(size_t) src]->getText(), juce::dontSendNotification);
     *expandedStates[(size_t) resolumeSendTargetCount_] = false;
     ++resolumeSendTargetCount_;
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
     resized();
     repaint();
 }
@@ -3840,8 +3823,7 @@ void TriggerContentComponent::removeResolumeSendTarget (int targetIndex)
     --resolumeSendTargetCount_;
     for (auto& clip : triggerRows_)
         clip.sendTargetIndex = clampSendTargetIndex (clip.sendTargetIndex);
-    triggerTable_.updateContent();
-    triggerTable_.repaint();
+    refreshTriggerTableContent();
     resized();
     repaint();
 }
@@ -4065,20 +4047,17 @@ bool TriggerContentComponent::parseTcToFrames (const juce::String& tc, int fps, 
 
 void TriggerContentComponent::setTimecodeStatusText (const juce::String& text, juce::Colour colour)
 {
-    statusLabel_.setText (text, juce::dontSendNotification);
-    statusLabel_.setColour (juce::Label::textColourId, colour);
+    statusBar_.setRightStatus (text, colour);
 }
 
 void TriggerContentComponent::setResolumeStatusText (const juce::String& text, juce::Colour colour)
 {
-    resolumeStatusLabel_.setText (text, juce::dontSendNotification);
-    resolumeStatusLabel_.setColour (juce::Label::textColourId, colour);
+    statusBar_.setLeftStatus (text, colour);
 }
 
 void TriggerContentComponent::setNetworkStatusText (const juce::String& text, juce::Colour colour)
 {
-    networkStatusLabel_.setText (text, juce::dontSendNotification);
-    networkStatusLabel_.setColour (juce::Label::textColourId, colour);
+    statusBar_.setCenterStatus (text, colour);
 }
 
 void TriggerContentComponent::updateNetworkStatusIndicator()
@@ -4138,24 +4117,248 @@ void TriggerContentComponent::updateNetworkStatusIndicator()
     setNetworkStatusText (text, colour);
 }
 
-juce::File TriggerContentComponent::getGetClipsDiagnosticLogFile() const
+void TriggerContentComponent::requestUpdateCheck (bool manual)
 {
-    return juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
-        .getChildFile ("EasyTrigger_GetClips_Log.txt");
+    if (updateCheckInFlight_)
+        return;
+
+    updateCheckManual_ = manual;
+    updateCheckInFlight_ = true;
+    updateChecker_.checkAsync (bridge::version::kAppVersion);
+
+    if (manual)
+        setResolumeStatusText ("Checking for updates...", juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
+}
+
+void TriggerContentComponent::showUpdatePrompt()
+{
+    if (availableVersion_.isEmpty() || availableReleaseUrl_.isEmpty())
+        return;
+
+    UpdatePromptWindow::show (bridge::version::kAppVersion,
+                              availableVersion_,
+                              availableReleaseNotes_,
+                              [safe = juce::Component::SafePointer<TriggerContentComponent> (this)]
+                              {
+                                  if (safe != nullptr)
+                                      safe->beginUpdateInstall();
+                              },
+                              getParentComponent());
+}
+
+void TriggerContentComponent::beginUpdateInstall()
+{
+    if (updateInstaller_.isBusy())
+        return;
+
+    const auto assetUrl = availableAssetUrl_.isNotEmpty() ? availableAssetUrl_ : availableReleaseUrl_;
+    if (assetUrl.isEmpty())
+    {
+        openLatestReleasePage();
+        return;
+    }
+
+    setResolumeStatusText ("Downloading update...", juce::Colour::fromRGB (0xa0, 0xa4, 0xac));
+    updateInstaller_.downloadAsync (availableVersion_,
+                                    assetUrl,
+                                    [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (const juce::String& error)
+                                    {
+                                        if (safe == nullptr)
+                                            return;
+
+                                        safe->setResolumeStatusText ("Update download failed", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+                                        DarkDialog::show ("Easy Trigger", error, safe->getParentComponent());
+                                    },
+                                    [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (const juce::File& packageFile)
+                                    {
+                                        if (safe == nullptr)
+                                            return;
+
+                                        if (! safe->launchDownloadedUpdate (packageFile))
+                                        {
+                                            safe->setResolumeStatusText ("Update launch failed", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
+                                            DarkDialog::show ("Easy Trigger",
+                                                              "The update package was downloaded, but could not be started automatically.",
+                                                              safe->getParentComponent());
+                                        }
+                                    });
+}
+
+void TriggerContentComponent::openLatestReleasePage()
+{
+    const auto preferredUrl = availableAssetUrl_.isNotEmpty() ? availableAssetUrl_ : availableReleaseUrl_;
+    if (preferredUrl.isNotEmpty())
+        juce::URL (preferredUrl).launchInDefaultBrowser();
+}
+
+bool TriggerContentComponent::launchDownloadedUpdate (const juce::File& packageFile)
+{
+    if (! packageFile.existsAsFile())
+        return false;
+
+#if JUCE_WINDOWS
+    const auto pid = (int) ::GetCurrentProcessId();
+    auto helperFile = packageFile.getSiblingFile ("EasyTrigger_Update_Helper_" + juce::String (pid) + ".ps1");
+
+    auto escapePs = [] (juce::String s)
+    {
+        return s.replace ("'", "''");
+    };
+
+    const auto installerPath = escapePs (packageFile.getFullPathName());
+    const auto helperPath = escapePs (helperFile.getFullPathName());
+    const juce::String script =
+        "$pidToWait = " + juce::String (pid) + "\n"
+        "$installer = '" + installerPath + "'\n"
+        "while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }\n"
+        "Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'\n"
+        "Start-Sleep -Seconds 1\n"
+        "Remove-Item -LiteralPath '" + helperPath + "' -Force -ErrorAction SilentlyContinue\n";
+
+    if (! helperFile.replaceWithText (script))
+        return false;
+
+    auto powershellExe = juce::File::getSpecialLocation (juce::File::windowsSystemDirectory)
+                             .getChildFile ("WindowsPowerShell")
+                             .getChildFile ("v1.0")
+                             .getChildFile ("powershell.exe");
+    if (! powershellExe.existsAsFile())
+        return false;
+
+    const bool started = powershellExe.startAsProcess ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \""
+                                                       + helperFile.getFullPathName() + "\"");
+    if (! started)
+        return false;
+
+    setResolumeStatusText ("Installing update...", juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
+    if (auto* app = juce::JUCEApplication::getInstance())
+        app->systemRequestedQuit();
+    return true;
+#else
+    const bool started = packageFile.startAsProcess();
+    if (started)
+    {
+       #if JUCE_MAC
+        setResolumeStatusText ("Update image opened", juce::Colour::fromRGB (0x51, 0xc8, 0x7b));
+        DarkDialog::show ("Easy Trigger",
+                          "The update image has been opened.\nComplete the app replacement, then relaunch Easy Trigger.",
+                          getParentComponent());
+       #endif
+    }
+    return started;
+#endif
+}
+
+void TriggerContentComponent::pollUpdateChecker()
+{
+    if (! updateCheckInFlight_ || ! updateChecker_.hasResult())
+        return;
+
+    updateCheckInFlight_ = false;
+    availableVersion_.clear();
+    availableReleaseUrl_.clear();
+    availableAssetUrl_.clear();
+    availableReleaseNotes_.clear();
+    updateAvailable_ = false;
+
+    if (updateChecker_.didCheckFail())
+    {
+        if (updateCheckManual_)
+            DarkDialog::show ("Easy Trigger", "Update check failed.\nPlease try again later.", getParentComponent());
+        updateCheckManual_ = false;
+        return;
+    }
+
+    availableVersion_ = updateChecker_.getLatestVersion();
+    availableReleaseUrl_ = updateChecker_.getReleaseUrl();
+    availableAssetUrl_ = updateChecker_.getPreferredAssetUrl();
+    availableReleaseNotes_ = updateChecker_.getReleaseNotes();
+    updateAvailable_ = updateChecker_.isUpdateAvailable();
+
+    if (updateAvailable_)
+    {
+        if (! updatePromptShown_ || updateCheckManual_)
+        {
+            updatePromptShown_ = true;
+            showUpdatePrompt();
+        }
+    }
+    else if (updateCheckManual_)
+    {
+        DarkDialog::show ("Easy Trigger", "You already have the latest version.", getParentComponent());
+    }
+
+    updateCheckManual_ = false;
 }
 
 void TriggerContentComponent::logGetClipsDiagnostic (const juce::String& message) const
 {
-    const auto line = "[" + diagnosticTimestamp() + "] " + message + "\r\n";
-    const auto logFile = getGetClipsDiagnosticLogFile();
-    logFile.getParentDirectory().createDirectory();
+    juce::ignoreUnused (message);
+}
 
-    if (auto stream = std::make_unique<juce::FileOutputStream> (logFile, 32768))
+void TriggerContentComponent::fillStatusMonitorValues (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals) const
+{
+    keys.clearQuick();
+    vals.clearQuick();
+
+    juce::String fired;
+    int okSendSlots = 0;
+    const int totalSendSlots = juce::jlimit (1, 8, resolumeSendTargetCount_);
+    for (const auto& key : currentTriggerKeys_)
     {
-        stream->setPosition (logFile.existsAsFile() ? logFile.getSize() : 0);
-        stream->writeText (line, false, false, nullptr);
-        stream->flush();
+        for (const auto& t : triggerRows_)
+        {
+            if (t.layer == key.first && t.clip == key.second)
+            {
+                if (fired.isNotEmpty()) fired += ",  ";
+                fired += "L" + juce::String (t.layer)
+                       + " C" + juce::String (t.clip)
+                       + " " + t.name
+                       + "  ->  " + t.triggerTc;
+                break;
+            }
+        }
     }
+
+    keys.add ("Source:");        vals.add (sourceCombo_.getText());
+    keys.add ("Input TC:");      vals.add (tcLabel_.getText()
+                                           + "  (" + formatDisplayedInputFps (hasLatchedTc_, latchedFps_, fpsIndicatorStrip_.get()) + ")");
+    keys.add ("TC Status:");     vals.add (statusBar_.getRightText());
+    keys.add ("LTC Out:");       vals.add ((ltcOutSwitch_.getState() ? "ON" : "OFF")
+                                           + juce::String ("  |  ") + ltcOutDeviceCombo_.getText());
+    keys.add ("LTC Ch / Rate:"); vals.add (ltcOutChannelCombo_.getText()
+                                           + "  |  " + ltcOutSampleRateCombo_.getText());
+    keys.add ("MTC In:");        vals.add (mtcInCombo_.getText());
+    keys.add ("Last Fired:");    vals.add (fired.isEmpty() ? "-" : fired);
+    keys.add ("Resolume:");      vals.add (statusBar_.getLeftText());
+    keys.add ("Network:");       vals.add (statusBar_.getCenterText());
+    keys.add ("ArtNet In:");     vals.add (artnetInCombo_.getText()
+                                           + "  |  " + artnetListenIpEditor_.getText());
+    keys.add ("OSC Listen:");    vals.add (oscIpEditor_.getText() + ":" + oscPortEditor_.getText());
+    keys.add ("Res Listen:");    vals.add (oscListenDetail_);
+    for (int i = 1; i <= totalSendSlots; ++i)
+    {
+        if (auto target = getConfiguredResolumeSendTarget (i); target.has_value())
+        {
+            const auto key = makeResolumeSendTargetKey (*target);
+            juce::String value = "idle  |  " + describeResolumeSendTarget (*target);
+            if (auto it = sendTargetRuntimeStates_.find (key); it != sendTargetRuntimeStates_.end())
+            {
+                okSendSlots += it->second.ok ? 1 : 0;
+                value = (it->second.ok ? "OK  |  " : "ERR |  ")
+                      + describeResolumeSendTarget (*target)
+                      + "  |  " + it->second.detail;
+            }
+            keys.add ("Send " + juce::String (i) + ":");
+            vals.add (value);
+        }
+    }
+    keys.add ("Send Summary:");  vals.add (juce::String (okSendSlots) + "/" + juce::String (totalSendSlots)
+                                           + " OK  |  " + statusBar_.getCenterText());
+    keys.add ("OSC Activity:");  vals.add ("RX "
+                                           + juce::String (lastOscInMs_ > 0 ? juce::Time (lastOscInMs_).formatted ("%H:%M:%S") : "-")
+                                           + "  |  TX "
+                                           + juce::String (lastOscOutMs_ > 0 ? juce::Time (lastOscOutMs_).formatted ("%H:%M:%S") : "-"));
 }
 
 void TriggerContentComponent::openStatusMonitorWindow()
@@ -4167,75 +4370,12 @@ void TriggerContentComponent::openStatusMonitorWindow()
         return;
     }
 
-    // Build a live getter lambda that reads current values every timer tick
     auto getter = [this] (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals)
     {
-        keys.clearQuick();
-        vals.clearQuick();
-
-        juce::String fired;
-        int okSendSlots = 0;
-        const int totalSendSlots = juce::jlimit (1, 8, resolumeSendTargetCount_);
-        for (const auto& key : currentTriggerKeys_)
-        {
-            for (const auto& t : triggerRows_)
-            {
-                if (t.layer == key.first && t.clip == key.second)
-                {
-                    if (fired.isNotEmpty()) fired += ",  ";
-                    fired += "L" + juce::String (t.layer)
-                           + " C" + juce::String (t.clip)
-                           + " " + t.name
-                           + "  ->  " + t.triggerTc;
-                    break;
-                }
-            }
-        }
-
-        keys.add ("Source:");        vals.add (sourceCombo_.getText());
-        keys.add ("Input TC:");      vals.add (tcLabel_.getText()
-                                               + "  (" + formatDisplayedInputFps (hasLatchedTc_, latchedFps_, fpsIndicatorStrip_.get()) + ")");
-        keys.add ("TC Status:");     vals.add (statusLabel_.getText());
-        keys.add ("LTC Out:");       vals.add ((ltcOutSwitch_.getState() ? "ON" : "OFF")
-                                               + juce::String ("  |  ") + ltcOutDeviceCombo_.getText());
-        keys.add ("LTC Ch / Rate:"); vals.add (ltcOutChannelCombo_.getText()
-                                               + "  |  " + ltcOutSampleRateCombo_.getText());
-        keys.add ("MTC In:");        vals.add (mtcInCombo_.getText());
-        keys.add ("Last Fired:");    vals.add (fired.isEmpty() ? "-" : fired);
-        keys.add ("Resolume:");      vals.add (resolumeStatusLabel_.getText());
-        keys.add ("Network:");       vals.add (networkStatusLabel_.getText());
-        keys.add ("ArtNet In:");     vals.add (artnetInCombo_.getText()
-                                               + "  |  " + artnetListenIpEditor_.getText());
-        keys.add ("OSC Listen:");    vals.add (oscIpEditor_.getText() + ":" + oscPortEditor_.getText());
-        keys.add ("Res Listen:");    vals.add (oscListenDetail_);
-        for (int i = 1; i <= totalSendSlots; ++i)
-        {
-            if (auto target = getConfiguredResolumeSendTarget (i); target.has_value())
-            {
-                const auto key = makeResolumeSendTargetKey (*target);
-                juce::String value = "idle  |  " + describeResolumeSendTarget (*target);
-                if (auto it = sendTargetRuntimeStates_.find (key); it != sendTargetRuntimeStates_.end())
-                {
-                    okSendSlots += it->second.ok ? 1 : 0;
-                    value = (it->second.ok ? "OK  |  " : "ERR |  ")
-                          + describeResolumeSendTarget (*target)
-                          + "  |  " + it->second.detail;
-                }
-                keys.add ("Send " + juce::String (i) + ":");
-                vals.add (value);
-            }
-        }
-        keys.add ("Send Summary:");  vals.add (juce::String (okSendSlots) + "/" + juce::String (totalSendSlots)
-                                               + " OK  |  " + networkStatusLabel_.getText());
-        keys.add ("OSC Activity:");  vals.add ("RX "
-                                               + juce::String (lastOscInMs_ > 0 ? juce::Time (lastOscInMs_).formatted ("%H:%M:%S") : "-")
-                                               + "  |  TX "
-                                               + juce::String (lastOscOutMs_ > 0 ? juce::Time (lastOscOutMs_).formatted ("%H:%M:%S") : "-"));
-
-        // Last fired clips — one per layer, from currentTriggerKeys_
+        fillStatusMonitorValues (keys, vals);
     };
 
-    auto* win = new StatusMonitorWindow (std::move (getter), &oscLog_, getParentComponent());
+    auto* win = new StatusMonitorWindow (getter, &oscLog_, getParentComponent());
     statusMonitor_ = win;
 }
 

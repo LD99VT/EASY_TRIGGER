@@ -676,8 +676,7 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
         normaliseLayerOrder();
         ensureCustomColumnsState();
         rebuildDisplayRows();
-        triggerTable_.updateContent();
-        triggerTable_.repaint();
+        refreshTriggerTableContent();
         createCustomBtn_.setEnabled (! hasCustomGroupsAtLimit());
     }
 

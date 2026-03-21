@@ -18,6 +18,11 @@
 #include "engine/BridgeEngine.h"
 #include "engine/ResolumeClipCollector.h"
 
+#include "ui/monitoring/OscLog.h"
+#include "ui/components/StatusBarComponent.h"
+#include "ui/components/SettingsPanelComponent.h"
+#include "ui/updates/UpdateChecker.h"
+#include "ui/updates/UpdateInstaller.h"
 #include "ui/style/TriggerColours.h"
 #include "ui/style/TriggerLookAndFeel.h"
 #include "ui/style/StyleHelpers.h"
@@ -30,50 +35,6 @@
 
 namespace trigger
 {
-// ─── OSC Console log ─────────────────────────────────────────────────────────
-struct OscLogEntry
-{
-    enum class Dir { input, output };
-    Dir           dir { Dir::input };
-    juce::int64   timestampMs { 0 };
-    juce::String  ip;
-    int           port { 0 };
-    juce::String  address;
-    juce::String  type;   // "i32", "f32", "str", "bang"
-    juce::String  value;
-};
-
-class OscLog
-{
-public:
-    static constexpr int kMaxEntries = 300;
-
-    void push (OscLogEntry e)
-    {
-        const juce::ScopedLock sl (lock_);
-        entries_.push_back (std::move (e));
-        if ((int) entries_.size() > kMaxEntries)
-            entries_.erase (entries_.begin());
-    }
-
-    std::vector<OscLogEntry> snapshot() const
-    {
-        const juce::ScopedLock sl (lock_);
-        return entries_;
-    }
-
-    void clear()
-    {
-        const juce::ScopedLock sl (lock_);
-        entries_.clear();
-    }
-
-private:
-    std::vector<OscLogEntry>  entries_;
-    mutable juce::CriticalSection lock_;
-};
-// ─────────────────────────────────────────────────────────────────────────────
-
 class FpsIndicatorStrip final : public juce::Component
 {
 public:
@@ -178,6 +139,12 @@ private:
     void loadFonts();
     void applyTheme();
     void openHelpPage();
+    void requestUpdateCheck (bool manual);
+    void pollUpdateChecker();
+    void showUpdatePrompt();
+    void beginUpdateInstall();
+    void openLatestReleasePage();
+    bool launchDownloadedUpdate (const juce::File& packageFile);
     void restartSelectedSource();
     void queueLtcOutputApply();
     void ltcOutputApplyLoop();
@@ -232,6 +199,8 @@ private:
     void deleteTriggerRow (int clipIndex);
     void fireCustomTrigger (const TriggerClip& clip);
     void updateTableColumnWidths();
+    void refreshTriggerTableContent();
+    void repaintTriggerTable();
     void addCustomColumns();
     void removeCustomColumns();
     void tableColumnsResized (juce::TableHeaderComponent*) override;
@@ -279,9 +248,15 @@ private:
     void setNetworkStatusText (const juce::String& text, juce::Colour colour);
     void updateNetworkStatusIndicator();
     void logGetClipsDiagnostic (const juce::String& message) const;
-    juce::File getGetClipsDiagnosticLogFile() const;
+    void fillStatusMonitorValues (juce::Array<juce::String>& keys, juce::Array<juce::String>& vals) const;
     void openStatusMonitorWindow();
     void openPreferencesWindow();
+    void updateLeftPanelVisibility (int src);
+    void layoutSettingsPanelChrome (juce::Rectangle<int>& left,
+                                    juce::Rectangle<int>& getTriggersRow,
+                                    juce::Rectangle<int>& createCustomRow);
+    void layoutMenuButtons();
+    void bringChromeToFront();
 
     bridge::engine::BridgeEngine bridgeEngine_;
     trigger::engine::ResolumeClipCollector clipCollector_;
@@ -309,6 +284,17 @@ private:
     juce::Component::SafePointer<juce::Component> preferencesWindow_;
     juce::Component::SafePointer<juce::Component> getClipsOptionsWindow_;
     mutable OscLog oscLog_;
+    UpdateChecker updateChecker_ { "https://api.github.com/repos/LD99VT/EASY_TRIGGER/releases/latest" };
+    UpdateInstaller updateInstaller_;
+    int updateCheckDelay_ { 90 };
+    bool updateCheckInFlight_ { false };
+    bool updateCheckManual_ { false };
+    bool updatePromptShown_ { false };
+    bool updateAvailable_ { false };
+    juce::String availableVersion_;
+    juce::String availableReleaseUrl_;
+    juce::String availableAssetUrl_;
+    juce::String availableReleaseNotes_;
 
     struct PendingEndAction
     {
@@ -348,9 +334,7 @@ private:
     HelpCircleButton helpButton_;
     juce::Label tcLabel_              { {}, "00:00:00:00" };
     std::unique_ptr<FpsIndicatorStrip> fpsIndicatorStrip_;
-    juce::Label resolumeStatusLabel_  { {}, "Resolume idle" };
-    juce::Label networkStatusLabel_   { {}, "OSC idle" };
-    juce::Label statusLabel_          { {}, "STOPPED" };
+    StatusBarComponent statusBar_;
     juce::Label sourceHeaderLabel_    { {}, "Source" };
     juce::Label triggerOutHeaderLabel_{ {}, "Trigger Out" };
     juce::Label outLtcHeaderLabel_    { {}, "Out LTC" };
@@ -512,13 +496,8 @@ private:
     juce::Rectangle<int> headerRect_;
     juce::Rectangle<int> menuBarRect_;
     juce::Rectangle<int> timerRect_;
-    juce::Rectangle<int> statusBarRect_;
-    juce::Rectangle<int> statusLeftRect_;
-    juce::Rectangle<int> statusCenterRect_;
-    juce::Rectangle<int> statusRightRect_;
     juce::Rectangle<int> leftViewportRect_;
-    juce::Viewport leftViewport_;
-    juce::Component leftViewportContent_;
+    SettingsPanelComponent settingsPanel_ { getTriggersBtn_, createCustomBtn_ };
     std::unique_ptr<TriggerLookAndFeel> lookAndFeel_;
     std::thread ltcOutputApplyThread_;
     std::mutex ltcOutputApplyMutex_;

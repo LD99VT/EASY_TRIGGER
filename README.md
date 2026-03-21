@@ -32,6 +32,7 @@ Additional app features:
 - Resolume layer/clip fetch and trigger table
 - Global trigger offset with `+` / `-` time shift
 - LTC output monitoring and routing
+- Built-in update checking from the `Help` menu
 - Windows installer and macOS DMG packaging in CI
 
 ---
@@ -45,6 +46,11 @@ Pre-built installers are attached to each [GitHub Release](../../releases/latest
 | Windows  | `EasyTrigger_Setup_<version>.exe` |
 | macOS    | `EasyTrigger-<version>.dmg` |
 
+Easy Trigger can also check for updates from `Help -> Check for Updates`.
+If a newer version is available, the menu changes to `Update Now (vX.Y.Z)`.
+On Windows, the app downloads the installer and starts the update after Easy Trigger closes.
+On macOS, the app downloads and opens the latest `.dmg`.
+
 ---
 
 ## Latest update (2.7.0)
@@ -57,6 +63,7 @@ Pre-built installers are attached to each [GitHub Release](../../releases/latest
 - Expanded multi-target `Trigger Out` monitoring with compact status-bar summaries and per-target details in `Status Monitor`.
 - Reworked `Status Monitor` into a two-column diagnostics view while keeping the live OSC Console at the bottom.
 - Prevented duplicate popups for `Get Clips`, `Set`, and `End Action`.
+- Added built-in update checking with startup notification and `Help -> Update Now (vX.Y.Z)` when a newer release is found.
 - Bundled runtime and firewall setup improvements into the Windows installer for more reliable first-run behaviour on clean systems.
 
 ### 2.7.0 — Table UI & trigger behaviour improvements

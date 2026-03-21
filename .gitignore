@@ -12,5 +12,8 @@ dist/
 
 Installer/*.exe
 Installer/*.dmg
+Installer/repack/*.exe
+Installer/repack/*.dmg
+test_builds/
 .DS_Store
 ._*

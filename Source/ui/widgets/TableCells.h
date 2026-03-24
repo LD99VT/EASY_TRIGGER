@@ -106,6 +106,122 @@ private:
     bool isUpdating_ { false };
 };
 
+class RangeModeButton final : public juce::Button
+{
+public:
+    std::function<void()> onPress;
+
+    RangeModeButton() : juce::Button ("range-mode")
+    {
+        onClick = [this] { if (onPress) onPress(); };
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void setMode (const juce::String& mode, const juce::String& tooltipText)
+    {
+        mode_ = mode;
+        setTooltip (tooltipText);
+        repaint();
+    }
+
+    void paintButton (juce::Graphics& g, bool isHovered, bool isDown) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (0.5f, 3.0f);
+        paintFlatBtn (g, b, isHovered, isDown);
+        g.setColour (kFlatBtnIcon);
+        g.setFont (juce::FontOptions (11.0f).withStyle ("Bold"));
+
+        juce::String label = "MID";
+        if (mode_ == "pre")  label = "PRE";
+        if (mode_ == "post") label = "POST";
+        g.drawFittedText (label, b.toNearestInt(), juce::Justification::centred, 1);
+    }
+
+private:
+    juce::String mode_ { "mid" };
+};
+
+class InlineRangeCell final : public juce::Component
+{
+public:
+    std::function<void(const juce::String&)> onRangeCommit;
+    std::function<void(const juce::String&)> onModeChanged;
+
+    InlineRangeCell()
+    {
+        addAndMakeVisible (modeBtn_);
+        addAndMakeVisible (editor_);
+
+        editor_.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+        editor_.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+        editor_.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+        editor_.setColour (juce::TextEditor::textColourId, juce::Colour::fromRGB (0xca, 0xca, 0xca));
+        editor_.setBorder (juce::BorderSize<int> (0));
+        editor_.setIndents (4, 0);
+        editor_.setJustification (juce::Justification::centredLeft);
+        editor_.onReturnKey = [this] { if (onRangeCommit) onRangeCommit (editor_.getText()); };
+        editor_.onFocusLost = [this] { if (onRangeCommit) onRangeCommit (editor_.getText()); };
+
+        modeBtn_.onPress = [this]
+        {
+            if (mode_ == "pre")      mode_ = "mid";
+            else if (mode_ == "mid") mode_ = "post";
+            else                     mode_ = "pre";
+
+            updateButton();
+            if (onModeChanged)
+                onModeChanged (mode_);
+        };
+    }
+
+    void setState (double rangeValue, const juce::String& mode)
+    {
+        editor_.setText (juce::String (rangeValue, 1), juce::dontSendNotification);
+        mode_ = mode.trim().toLowerCase();
+        if (mode_ != "pre" && mode_ != "post")
+            mode_ = "mid";
+        updateButton();
+    }
+
+    void setTextAppearance (juce::Colour colour, const juce::Font& font)
+    {
+        editor_.applyColourToAllText (colour, true);
+        editor_.applyFontToAllText (font, true);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (2, 1);
+        modeBtn_.setBounds (r.removeFromLeft (44));
+        r.removeFromLeft (4);
+        editor_.setBounds (r);
+    }
+
+private:
+    void updateButton()
+    {
+        juce::String modeName = "MID";
+        juce::String tip = "Range mode: MID (window centered on trigger time)";
+        if (mode_ == "pre")
+        {
+            modeName = "PRE";
+            tip = "Range mode: PRE (window ends at trigger time)";
+        }
+        else if (mode_ == "post")
+        {
+            modeName = "POST";
+            tip = "Range mode: POST (window starts at trigger time)";
+        }
+
+        juce::ignoreUnused (modeName);
+        modeBtn_.setMode (mode_, tip);
+    }
+
+    RangeModeButton modeBtn_;
+    juce::TextEditor editor_;
+    juce::String mode_ { "mid" };
+};
+
 class InlineDeleteButtonCell final : public juce::Button
 {
 public:

@@ -52,6 +52,67 @@ juce::FontOptions clipRowFont()
     return juce::FontOptions (kTableRowFontSize).withStyle ("Bold");
 }
 
+juce::String normaliseTriggerRangeMode (juce::String mode)
+{
+    mode = mode.trim().toLowerCase();
+    if (mode == "pre" || mode == "post")
+        return mode;
+    return "mid";
+}
+
+std::pair<int, int> getTriggerWindowBounds (int triggerFrame, int rangeFrames, const juce::String& mode)
+{
+    const auto normalised = normaliseTriggerRangeMode (mode);
+    if (normalised == "pre")
+        return { triggerFrame - rangeFrames, triggerFrame };
+    if (normalised == "post")
+        return { triggerFrame, triggerFrame + rangeFrames };
+    return { triggerFrame - rangeFrames, triggerFrame + rangeFrames };
+}
+
+bool isFrameInsideTriggerWindow (int currentFrame, int triggerFrame, int rangeFrames, const juce::String& mode)
+{
+    const auto [startFrame, endFrame] = getTriggerWindowBounds (triggerFrame, rangeFrames, mode);
+    return currentFrame >= startFrame && currentFrame <= endFrame;
+}
+
+bool parseTcToFramesLocal (const juce::String& tc, int fps, int& outFrames)
+{
+    juce::StringArray p;
+    p.addTokens (tc, ":", "");
+    p.removeEmptyStrings();
+    if (p.size() != 4)
+        return false;
+
+    const int hh = p[0].getIntValue();
+    const int mm = p[1].getIntValue();
+    const int ss = p[2].getIntValue();
+    const int ff = p[3].getIntValue();
+    if (mm < 0 || mm > 59 || ss < 0 || ss > 59 || ff < 0 || ff >= fps)
+        return false;
+
+    outFrames = (((hh * 60) + mm) * 60 + ss) * fps + ff;
+    return true;
+}
+
+std::optional<std::pair<int, int>> getClipDurationWindowBounds (int triggerFrame, const juce::String& durationTc, int liveFps)
+{
+    int durationFrames25 = 0;
+    if (! parseTcToFramesLocal (durationTc, 25, durationFrames25) || durationFrames25 <= 0)
+        return std::nullopt;
+
+    const double durationSec = (double) durationFrames25 / 25.0;
+    const int durationFramesLive = juce::jmax (1, (int) std::round (durationSec * (double) juce::jmax (1, liveFps)));
+    return std::make_pair (triggerFrame, triggerFrame + durationFramesLive);
+}
+
+bool isFrameInsideClipDurationWindow (int currentFrame, int triggerFrame, const juce::String& durationTc, int liveFps)
+{
+    if (const auto bounds = getClipDurationWindowBounds (triggerFrame, durationTc, liveFps))
+        return currentFrame >= bounds->first && currentFrame <= bounds->second;
+    return false;
+}
+
 void tagPopupComponentTree (juce::Component& component, juce::MouseListener& listener, int rowNumber)
 {
     if (dynamic_cast<juce::TextEditor*> (&component) != nullptr
@@ -1725,7 +1786,7 @@ void TriggerContentComponent::updateTableColumnWidths()
         { 2,  38,  34 },           // in
         { 3, 186, 150 },           // name
         { 4,  96,  92 },           // count    – "00:00:00:00" + padding
-        { 5,  64,  58 },           // range
+        { 5, 112, 100 },           // range mode + value
         { 6,  98,  92 },           // trigger  – timecode
         { 7,  98,  92 },           // duration – timecode
         { 8, 165, endActionMin },  // end action – Set + info
@@ -2274,26 +2335,26 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
         if (columnId == 5)
         {
             // Editable Range field on the group header row — syncs to all clips in the layer
-            auto* ed = dynamic_cast<InlineTextCell*> (existing);
-            if (ed == nullptr)
+            auto* cell = dynamic_cast<InlineRangeCell*> (existing);
+            if (cell == nullptr)
             {
                 if (existing != nullptr) existing->setVisible (false);
-                ed = new InlineTextCell();
+                cell = new InlineRangeCell();
             }
 
             const bool enabled = layerEnabled_[dr.layer];
             const juce::Colour textCol = enabled ? kTextPrimary
                                                  : juce::Colour::fromRGB (0x9a, 0x9a, 0xa5);
             const juce::Font cellFont (juce::FontOptions (kGroupHeaderFontSize).withStyle ("Bold"));
-            ed->applyColourToAllText (textCol, true);
-            ed->applyFontToAllText (cellFont, true);
+            cell->setTextAppearance (textCol, juce::Font (cellFont));
 
             double rangeVal = 0.0;
+            juce::String rangeMode = "mid";
             for (const auto& row : triggerRows_)
-                if (row.layer == dr.layer) { rangeVal = row.triggerRangeSec; break; }
-            ed->setText (juce::String (rangeVal, 1), juce::dontSendNotification);
+                if (row.layer == dr.layer) { rangeVal = row.triggerRangeSec; rangeMode = row.triggerRangeMode; break; }
+            cell->setState (rangeVal, rangeMode);
 
-            ed->onCommit = [this, rowNumber] (const juce::String& v)
+            cell->onRangeCommit = [this, rowNumber] (const juce::String& v)
             {
                 if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
                 const auto& dr2 = displayRows_[(size_t) rowNumber];
@@ -2304,7 +2365,18 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
                         c.triggerRangeSec = newRange;
                 refreshTriggerTableContent();
             };
-            return withPopup (ed);
+            cell->onModeChanged = [this, rowNumber] (const juce::String& mode)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                const auto& dr2 = displayRows_[(size_t) rowNumber];
+                if (! dr2.isGroup) return;
+                const auto normalised = normaliseTriggerRangeMode (mode);
+                for (auto& c : triggerRows_)
+                    if (c.layer == dr2.layer)
+                        c.triggerRangeMode = normalised;
+                refreshTriggerTableContent();
+            };
+            return withPopup (cell);
         }
 
         if (columnId == 9)
@@ -2496,6 +2568,41 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
 
     if (columnId == 3 || columnId == 5 || columnId == 6 || columnId == 7)
     {
+        if (columnId == 5)
+        {
+            auto* cell = dynamic_cast<InlineRangeCell*> (existing);
+            if (cell == nullptr)
+            {
+                if (existing != nullptr) existing->setVisible (false);
+                cell = new InlineRangeCell();
+            }
+
+            juce::Colour textCol = kTextPrimary;
+            if (! clip.include)      textCol = kTextDisabled;
+            else if (fired)          textCol = kTextAmberDark;
+            cell->setTextAppearance (textCol, juce::Font (clipRowFont()));
+            cell->setState (clip.triggerRangeSec, clip.triggerRangeMode);
+            cell->onRangeCommit = [this, rowNumber] (const juce::String& v)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                auto dr2 = displayRows_[(size_t) rowNumber];
+                if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
+                auto& c = triggerRows_[(size_t) dr2.clipIndex];
+                c.triggerRangeSec = juce::jmax (0.0, v.trim().replaceCharacter (',', '.').getDoubleValue());
+                triggerTable_.repaint();
+            };
+            cell->onModeChanged = [this, rowNumber] (const juce::String& mode)
+            {
+                if (! juce::isPositiveAndBelow (rowNumber, (int) displayRows_.size())) return;
+                auto dr2 = displayRows_[(size_t) rowNumber];
+                if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
+                auto& c = triggerRows_[(size_t) dr2.clipIndex];
+                c.triggerRangeMode = normaliseTriggerRangeMode (mode);
+                triggerTable_.repaint();
+            };
+            return withPopup (cell);
+        }
+
         auto* ed = dynamic_cast<InlineTextCell*> (existing);
         if (ed == nullptr)
         {
@@ -2513,7 +2620,6 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
         ed->applyFontToAllText (cellFont, true);
 
         if (columnId == 3) ed->setText (clip.name, juce::dontSendNotification);
-        if (columnId == 5) ed->setText (juce::String (clip.triggerRangeSec, 1), juce::dontSendNotification);
         if (columnId == 6) ed->setText (clip.triggerTc, juce::dontSendNotification);
         if (columnId == 7) ed->setText (clip.durationTc, juce::dontSendNotification);
         ed->onCommit = [this, rowNumber, columnId] (const juce::String& v)
@@ -2523,7 +2629,6 @@ juce::Component* TriggerContentComponent::refreshComponentForCell (int rowNumber
             if (! juce::isPositiveAndBelow (dr2.clipIndex, (int) triggerRows_.size())) return;
             auto& c = triggerRows_[(size_t) dr2.clipIndex];
             if (columnId == 3) c.name = v.trim();
-            if (columnId == 5) c.triggerRangeSec = juce::jmax (0.0, v.trim().replaceCharacter (',', '.').getDoubleValue());
             if (columnId == 6) c.triggerTc = v.trim();
             if (columnId == 7) c.durationTc = v.trim();
             triggerTable_.repaint();
@@ -2889,6 +2994,7 @@ void TriggerContentComponent::refreshTriggerRows()
         row.layerName = c.layerName;
         row.countdownTc = "00:00:00:00";
         row.triggerRangeSec = 5.0;
+        row.triggerRangeMode = "mid";
         row.durationTc = secondsToTc (c.durationSeconds, FrameRate::FPS_25);
         row.triggerTc = c.hasOffset ? secondsToTc (c.offsetSeconds, FrameRate::FPS_25)
                                     : "00:00:00:00";
@@ -2902,6 +3008,7 @@ void TriggerContentComponent::refreshTriggerRows()
             // Keep local trigger configuration, but always refresh live clip data from Resolume.
             row.include = old.include;
             row.triggerRangeSec = old.triggerRangeSec;
+            row.triggerRangeMode = normaliseTriggerRangeMode (old.triggerRangeMode);
             row.endActionMode = old.endActionMode;
             row.endActionCol = old.endActionCol;
             row.endActionLayer = old.endActionLayer;
@@ -3004,7 +3111,11 @@ void TriggerContentComponent::updateClipCountdowns()
             continue;
         }
         const int remain = triggerFrames - currentFrames;
-        t.timecodeHit = std::abs (remain) <= juce::jmax (1, (int) std::round (t.triggerRangeSec * fps));
+        const bool inRangeWindow = isFrameInsideTriggerWindow (currentFrames, triggerFrames,
+                                                               juce::jmax (1, (int) std::round (t.triggerRangeSec * fps)),
+                                                               t.triggerRangeMode);
+        const bool inDurationWindow = isFrameInsideClipDurationWindow (currentFrames, triggerFrames, t.durationTc, fps);
+        t.timecodeHit = inRangeWindow || inDurationWindow;
         if (remain <= 0)
             t.countdownTc = "00:00:00:00";
         else
@@ -3068,6 +3179,7 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         int index { -1 };
         int score { (std::numeric_limits<int>::max)() };
         bool isCrossOnly { false };
+        bool isDurationActive { false };
     };
 
     std::map<int, Candidate> bestByLayer;
@@ -3093,9 +3205,10 @@ void TriggerContentComponent::evaluateAndFireTriggers()
         }
 
         const int range = juce::jmax (1, (int) std::round (t.triggerRangeSec * fps));
-        const int winStart = trig - range;
-        const int winEnd = trig + range;
-        const bool inNow = currentFrames >= winStart && currentFrames <= winEnd;
+        const auto [winStart, winEnd] = getTriggerWindowBounds (trig, range, t.triggerRangeMode);
+        const bool inRangeNow = currentFrames >= winStart && currentFrames <= winEnd;
+        const bool inDurationNow = isFrameInsideClipDurationWindow (currentFrames, trig, t.durationTc, fps);
+        const bool inNow = inRangeNow || inDurationNow;
         const bool wasIn = triggerRangeActive_.count (key) > 0 ? triggerRangeActive_[key] : false;
         newRangeState[key] = inNow;
 
@@ -3118,22 +3231,32 @@ void TriggerContentComponent::evaluateAndFireTriggers()
             best.index = i;
             best.score = std::abs (currentFrames - trig);
             best.isCrossOnly = ! inNow;
+            best.isDurationActive = inDurationNow;
             continue;
         }
 
         const int score = std::abs (currentFrames - trig);
         const bool crossOnly = ! inNow;
-        if (best.isCrossOnly && ! crossOnly)
-        {
-            best.index = i;
-            best.score = score;
-            best.isCrossOnly = false;
-        }
-        else if (best.isCrossOnly == crossOnly && score < best.score)
+        if (! best.isDurationActive && inDurationNow)
         {
             best.index = i;
             best.score = score;
             best.isCrossOnly = crossOnly;
+            best.isDurationActive = true;
+        }
+        else if (best.isDurationActive == inDurationNow && best.isCrossOnly && ! crossOnly)
+        {
+            best.index = i;
+            best.score = score;
+            best.isCrossOnly = crossOnly;
+            best.isDurationActive = inDurationNow;
+        }
+        else if (best.isDurationActive == inDurationNow && best.isCrossOnly == crossOnly && score < best.score)
+        {
+            best.index = i;
+            best.score = score;
+            best.isCrossOnly = crossOnly;
+            best.isDurationActive = inDurationNow;
         }
     }
 

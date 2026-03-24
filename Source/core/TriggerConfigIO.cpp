@@ -171,10 +171,22 @@ void TriggerContentComponent::maybeAutoLoadConfig()
     }
 }
 
-void TriggerContentComponent::saveConfigAs (int modeId)
+void TriggerContentComponent::saveConfig (bool includeSettings, bool includeTriggers, bool saveAs)
 {
+    int modeId = 0;
+    if (includeSettings) modeId |= kConfigModeSettings;
+    if (includeTriggers) modeId |= kConfigModeClips;
+    if (modeId == 0)
+        return;
+
+    if (! saveAs && lastConfigFile_.existsAsFile())
+    {
+        saveConfigToFile (lastConfigFile_, modeId);
+        return;
+    }
+
     const juce::String label = modeId == kConfigModeSettings ? "settings"
-                             : modeId == kConfigModeClips ? "clips"
+                             : modeId == kConfigModeClips ? "triggers"
                                                           : "all";
 
     saveChooser_ = std::make_unique<juce::FileChooser> (
@@ -315,6 +327,7 @@ void TriggerContentComponent::saveConfigToFile (const juce::File& file, int mode
             rowObj->setProperty ("name", clip.name);
             rowObj->setProperty ("layer_name", clip.layerName);
             rowObj->setProperty ("trigger_range_sec", clip.triggerRangeSec);
+            rowObj->setProperty ("trigger_range_mode", clip.triggerRangeMode);
             rowObj->setProperty ("duration_tc", clip.durationTc);
             rowObj->setProperty ("trigger_tc", clip.triggerTc);
             rowObj->setProperty ("end_action_mode", clip.endActionMode);
@@ -572,6 +585,9 @@ void TriggerContentComponent::loadConfigFromFile (const juce::File& file, int mo
                     clip.name = rowObj->getProperty ("name").toString();
                     clip.layerName = rowObj->getProperty ("layer_name").toString();
                     clip.triggerRangeSec = (double) rowObj->getProperty ("trigger_range_sec");
+                    clip.triggerRangeMode = rowObj->hasProperty ("trigger_range_mode")
+                        ? rowObj->getProperty ("trigger_range_mode").toString()
+                        : juce::String ("mid");
                     clip.durationTc = rowObj->getProperty ("duration_tc").toString();
                     clip.triggerTc = rowObj->getProperty ("trigger_tc").toString();
                     clip.endActionMode = rowObj->getProperty ("end_action_mode").toString();

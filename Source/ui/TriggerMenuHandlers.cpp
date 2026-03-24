@@ -13,11 +13,10 @@ namespace
 #include "windows/DarkDialog.h"
 #include "windows/ColourPickerWindow.h"
 #include "windows/GetClipsOptionsWindow.h"
+#include "windows/SaveConfigOptionsWindow.h"
 #include "windows/PreferencesWindow.h"
 #include "windows/AboutWindow.h"
 
-constexpr int kConfigModeSettings = 1;
-constexpr int kConfigModeClips    = 2;
 constexpr int kConfigModeAll      = 3;
 
 juce::File getRuntimePrefsFile()
@@ -407,21 +406,18 @@ void TriggerContentComponent::resetTableLayout()
 void TriggerContentComponent::openFileMenu()
 {
     juce::PopupMenu m;
-    m.addItem (1, "Save Settings...");
-    m.addItem (2, "Save Clips...");
-    m.addItem (3, "Save All...");
+    m.addItem (1, "Save");
+    m.addItem (2, "Save As...");
     m.addSeparator();
-    m.addItem (4, "Load Settings...");
-    m.addItem (5, "Load Clips...");
-    m.addItem (6, "Load All...");
+    m.addItem (3, "Load...");
     m.addSeparator();
-    m.addItem (7, "Rescan Audio Devices");
-    m.addItem (8, "Reset Settings");
+    m.addItem (4, "Rescan Audio Devices");
+    m.addItem (5, "Reset Settings");
     m.addSeparator();
-    m.addItem (9, "Load Last Config", true, autoLoadOnStartup_);
-    m.addItem (10, "Close To Tray", true, closeToTray_);
+    m.addItem (6, "Load Last Config", true, autoLoadOnStartup_);
+    m.addItem (7, "Close To Tray", true, closeToTray_);
     m.addSeparator();
-    m.addItem (11, "Quit");
+    m.addItem (8, "Quit");
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fileMenuBtn_),
                      [safe = juce::Component::SafePointer<TriggerContentComponent> (this)] (int result)
@@ -430,26 +426,23 @@ void TriggerContentComponent::openFileMenu()
                              return;
                          switch (result)
                          {
-                             case 1: safe->saveConfigAs (kConfigModeSettings); break;
-                             case 2: safe->saveConfigAs (kConfigModeClips); break;
-                             case 3: safe->saveConfigAs (kConfigModeAll); break;
-                             case 4: safe->loadConfigFrom (kConfigModeSettings); break;
-                             case 5: safe->loadConfigFrom (kConfigModeClips); break;
-                             case 6: safe->loadConfigFrom (kConfigModeAll); break;
-                             case 7:
+                             case 1: safe->showSaveConfigOptions (false); break;
+                             case 2: safe->showSaveConfigOptions (true); break;
+                             case 3: safe->loadConfigFrom (kConfigModeAll); break;
+                             case 4:
                                  safe->startAudioDeviceScan();
                                  safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;
-                             case 8: safe->resetSettings(); break;
-                             case 9:
+                             case 5: safe->resetSettings(); break;
+                             case 6:
                                  safe->autoLoadOnStartup_ = ! safe->autoLoadOnStartup_;
                                  safe->saveRuntimePrefs();
                                  break;
-                             case 10:
+                             case 7:
                                  safe->closeToTray_ = ! safe->closeToTray_;
                                  safe->saveRuntimePrefs();
                                  break;
-                             case 11:
+                             case 8:
                                  if (auto* window = safe->findParentComponentOfClass<MainWindow>())
                                      window->quitFromTray();
                                  else
@@ -578,18 +571,27 @@ void TriggerContentComponent::openHelpMenu()
                      });
 }
 
+void TriggerContentComponent::showSaveConfigOptions (bool saveAs)
+{
+    SaveConfigOptionsWindow::show (true, true, saveAs,
+                                   [safe = juce::Component::SafePointer<TriggerContentComponent> (this), saveAs]
+                                   (bool includeSettings, bool includeTriggers)
+                                   {
+                                       if (safe != nullptr)
+                                           safe->saveConfig (includeSettings, includeTriggers, saveAs);
+                                   },
+                                   getParentComponent());
+}
+
 void TriggerContentComponent::openSettingsMenu()
 {
     juce::PopupMenu m;
-    m.addItem (1, "Save settings...");
-    m.addItem (2, "Save clips...");
-    m.addItem (3, "Save all...");
+    m.addItem (1, "Save");
+    m.addItem (2, "Save As...");
     m.addSeparator();
-    m.addItem (4, "Load settings...");
-    m.addItem (5, "Load clips...");
-    m.addItem (6, "Load all...");
+    m.addItem (3, "Load...");
     m.addSeparator();
-    m.addItem (7, "Rescan audio devices");
+    m.addItem (4, "Rescan audio devices");
     m.addSeparator();
     m.addItem (10, "Clear custom triggers", hasCustomGroup());
     m.addItem (11, "Clear clip triggers", ! triggerRows_.empty());
@@ -606,13 +608,10 @@ void TriggerContentComponent::openSettingsMenu()
 
                          switch (result)
                          {
-                             case 1: safe->saveConfigAs (kConfigModeSettings); break;
-                             case 2: safe->saveConfigAs (kConfigModeClips); break;
-                             case 3: safe->saveConfigAs (kConfigModeAll); break;
-                             case 4: safe->loadConfigFrom (kConfigModeSettings); break;
-                             case 5: safe->loadConfigFrom (kConfigModeClips); break;
-                             case 6: safe->loadConfigFrom (kConfigModeAll); break;
-                             case 7:
+                             case 1: safe->showSaveConfigOptions (false); break;
+                             case 2: safe->showSaveConfigOptions (true); break;
+                             case 3: safe->loadConfigFrom (kConfigModeAll); break;
+                             case 4:
                                  safe->startAudioDeviceScan();
                                  safe->setTimecodeStatusText ("Audio devices rescanned", juce::Colour::fromRGB (0xec, 0x48, 0x3c));
                                  break;

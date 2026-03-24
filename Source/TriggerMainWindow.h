@@ -89,6 +89,7 @@ private:
         juce::String layerName;
         juce::String countdownTc { "00:00:00:00" };
         double triggerRangeSec { 5.0 };
+        juce::String triggerRangeMode { "mid" };
         juce::String durationTc;
         juce::String triggerTc;
         juce::String endActionMode { "off" };
@@ -156,7 +157,8 @@ private:
     void loadRuntimePrefs();
     void saveRuntimePrefs() const;
     void maybeAutoLoadConfig();
-    void saveConfigAs (int modeId);
+    void showSaveConfigOptions (bool saveAs);
+    void saveConfig (bool includeSettings, bool includeTriggers, bool saveAs);
     void loadConfigFrom (int modeId);
     void saveConfigToFile (const juce::File& file, int modeId);
     void loadConfigFromFile (const juce::File& file, int modeId);

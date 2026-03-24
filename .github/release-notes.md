@@ -1,21 +1,18 @@
-## Easy Trigger 2.7.1
+## Easy Trigger 2.7.2
 
-### Playback, Resolume and monitoring
+### Trigger behaviour
 
-- Fixed large forward timecode jumps so starting playback from the middle no longer fires every cue between the old and new position.
-- Improved Resolume `Get Clips`, OSC diagnostics, and live feedback handling.
-- Expanded multi-output monitoring in the status bar and Status Monitor with clearer per-target reporting.
-- Improved highlight ownership so live Resolume feedback correctly overrides temporary test highlighting.
+- Added `PRE / MID / POST` range modes to the `Range` column for both individual rows and layer/group header rows.
+- Trigger windows can now be shaped before the trigger time, centered on it, or after it, making timecode landing behaviour much more flexible.
+- Trigger matching now also stays active for the full `Duration` of the clip, so jumping into the middle of a playing clip still selects the correct trigger.
+- While timecode runs steadily inside the same active window, the trigger does not repeatedly re-fire; it only re-arms after rewind, a seek/jump, signal loss, or leaving and re-entering the window.
 
-### UI and workflow
+### Save / load workflow
 
-- Continued the UI refactor by extracting more monitoring and settings-panel logic from the main window.
-- Added built-in update checking on startup and from the Help menu.
-- Added an in-app update prompt and platform-aware update flow.
-- Prevented duplicate popup windows for `Get Clips`, `Set`, and `End Action`.
+- Simplified saving to a single `Save` and `Save As...` flow.
+- Both save actions now open one dark modal with `Settings` and `Triggers` checkboxes, both enabled by default.
+- Removed the older split `Save Settings / Save Clips / Save All` menu structure.
 
-### Packaging and release
+### Documentation
 
-- Installer now uses the icon from the shared `Icon` asset folder, matching the application icon.
-- Bundled runtime and installer flow remain ready for clean Windows installs.
-- Release workflow now checks out the repository before publishing so release notes are attached correctly.
+- Updated the built-in help page to describe the new save dialog flow, the `PRE / MID / POST` range modes, and duration-aware trigger behaviour.

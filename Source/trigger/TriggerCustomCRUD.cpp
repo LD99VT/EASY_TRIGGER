@@ -283,6 +283,7 @@ void TriggerContentComponent::addCustomColTriggerToGroup (int groupId)
     row.layerName = findCustomGroupById (groupId)->name;
     row.countdownTc = "00:00:00:00";
     row.triggerRangeSec = 5.0;
+    row.triggerRangeMode = "mid";
     row.durationTc = "00:00:00:00";
     row.triggerTc = "00:00:00:00";
     row.endActionMode = "off";
@@ -313,6 +314,7 @@ void TriggerContentComponent::addCustomLcTriggerToGroup (int groupId)
     row.layerName = findCustomGroupById (groupId)->name;
     row.countdownTc = "00:00:00:00";
     row.triggerRangeSec = 5.0;
+    row.triggerRangeMode = "mid";
     row.durationTc = "00:00:00:00";
     row.triggerTc = "00:00:00:00";
     row.endActionMode = "off";
@@ -362,6 +364,7 @@ void TriggerContentComponent::addCustomGcTriggerToGroup (int groupId)
     row.layerName = findCustomGroupById (groupId)->name;
     row.countdownTc = "00:00:00:00";
     row.triggerRangeSec = 5.0;
+    row.triggerRangeMode = "mid";
     row.durationTc = "00:00:00:00";
     row.triggerTc = "00:00:00:00";
     row.endActionMode = "off";

@@ -53,7 +53,14 @@ On macOS, the app downloads and opens the latest `.dmg`.
 
 ---
 
-## Latest update (2.7.0)
+## Latest update (2.7.2)
+
+### 2.7.2 - Trigger windows and save workflow
+- Added `PRE / MID / POST` range modes to the `Range` column for clip rows and group rows.
+- Trigger matching now also follows the full `Duration` of a clip, so landing inside an already-running clip still picks the correct trigger.
+- Active trigger windows do not continuously re-fire while timecode moves steadily; they re-arm only after rewind, seek/jump, signal loss, or re-entry.
+- Simplified saving to `Save` and `Save As...`, both using a single dark modal with `Settings` and `Triggers` checkboxes enabled by default.
+- Updated the help page to document the new trigger behaviour and save flow.
 
 ### 2.7.0 - Resolume, monitoring, and packaging update
 - Fixed large forward timecode jumps so starting playback from the middle no longer fires every cue between the old and new position.
@@ -149,8 +156,8 @@ GitHub Actions release workflow:
 Tag release example:
 
 ```bash
-git tag v2.7.0
-git push origin v2.7.0
+git tag v2.7.2
+git push origin v2.7.2
 ```
 
 Produced assets:
